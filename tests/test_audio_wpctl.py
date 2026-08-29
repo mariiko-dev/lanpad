@@ -60,3 +60,19 @@ def test_state_survives_garbage_from_the_command(monkeypatch):
     """Даже если команда вернула мусор, чтение состояния не падает."""
     monkeypatch.setattr(WpctlAudio, "_run", lambda self, *args: "Volume: 1.2.3\n")
     assert WpctlAudio().state() == parse_volume("Volume: 1.2.3\n")
+
+
+@pytest.mark.parametrize("digits", [310, 400, 5000])
+def test_absurdly_long_number_does_not_raise(digits):
+    """float() отдаёт бесконечность молча, а round() на ней падает."""
+    assert parse_volume("Volume: " + "9" * digits).volume is None
+
+
+def test_absurdly_long_fraction_does_not_raise():
+    output = "Volume: " + "1" * 50_000 + "." + "2" * 50_000
+    assert parse_volume(output).volume is None
+
+
+def test_long_but_finite_number_is_still_parsed():
+    """Граница проверяется с обеих сторон: конечное число обязано разобраться."""
+    assert parse_volume("Volume: " + "9" * 300).volume is not None

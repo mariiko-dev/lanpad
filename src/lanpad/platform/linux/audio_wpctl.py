@@ -1,5 +1,6 @@
 """Громкость через PipeWire, командой wpctl."""
 
+import math
 import re
 import shutil
 import subprocess
@@ -16,14 +17,17 @@ def parse_volume(output: str) -> AudioState:
     """Разобрать вывод `wpctl get-volume`.
 
     Любая неожиданная форма вывода означает «громкость неизвестна», а не
-    падение: сломанный звук не должен ронять агент целиком.
+    падение: сломанный звук не должен ронять агент целиком. Бесконечность
+    проверяется отдельно — `float` возвращает её молча, без исключения.
     """
     match = _VOLUME_RE.search(output)
     if match is None:
         return AudioState(volume=None, muted=False)
     try:
         level = float(match.group(1))
-    except ValueError:
+    except (ValueError, OverflowError):
+        return AudioState(volume=None, muted=False)
+    if not math.isfinite(level):
         return AudioState(volume=None, muted=False)
     return AudioState(
         volume=round(level * 100),
