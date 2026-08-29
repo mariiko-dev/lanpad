@@ -120,3 +120,25 @@ def test_state_message_omits_media_when_absent():
         caps=p.Capabilities(audio=True, media=False, clipboard=False),
     )
     assert msg["media"] is None
+
+
+@pytest.mark.parametrize("literal", ["NaN", "Infinity", "-Infinity"])
+def test_json_constants_are_rejected(literal):
+    assert p.parse_events(f'[["m", {literal}, 0]]') == []
+
+
+@pytest.mark.parametrize("event", ["m", "w", "vol", "volset"])
+def test_overflowing_float_is_rejected_for_every_numeric_event(event):
+    payload = f'[["{event}", 1e999, 0]]' if event == "m" else f'[["{event}", 1e999]]'
+    assert p.parse_events(payload) == []
+
+
+def test_bad_number_does_not_destroy_the_rest_of_the_batch():
+    """Один негодный элемент не должен уносить весь пакет."""
+    events = p.parse_events('[["m",1,1],["m",1e999,0],["w",5]]')
+    assert events == [p.Move(1, 1), p.Wheel(5)]
+
+
+def test_nan_inside_batch_does_not_destroy_the_rest():
+    events = p.parse_events('[["w",1],["vol",NaN],["w",2]]')
+    assert events == [p.Wheel(1), p.Wheel(2)]

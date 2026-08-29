@@ -7,6 +7,7 @@
 """
 
 import json
+import math
 from dataclasses import dataclass
 
 from lanpad.keymap import MOUSE_BUTTONS
@@ -16,6 +17,14 @@ MAX_WHEEL = 200
 MAX_TEXT = 10_000
 MAX_COMBO_KEYS = 6
 MEDIA_ACTIONS = frozenset({"play", "next", "prev"})
+
+
+def _reject_constant(name: str) -> float:
+    """JSON допускает NaN и Infinity — для нас это негодные числа.
+
+    Преобразуем их в float, _bounded_int их отсеет при проверке конечности.
+    """
+    return float(name)
 
 
 @dataclass(frozen=True)
@@ -101,6 +110,8 @@ Event = (
 def _bounded_int(value: object, limit: int) -> int | None:
     if isinstance(value, bool) or not isinstance(value, int | float):
         return None
+    if isinstance(value, float) and not math.isfinite(value):
+        return None
     number = int(value)
     return number if -limit <= number <= limit else None
 
@@ -176,13 +187,21 @@ def _parse_one(item: object) -> Event | None:  # noqa: PLR0911, PLR0912
 def parse_events(raw: bytes | str) -> list[Event]:
     """Разбирает пакет событий, отбрасывая негодные элементы."""
     try:
-        payload = json.loads(raw or "[]")
+        payload = json.loads(raw or "[]", parse_constant=_reject_constant)
     except (ValueError, TypeError):
         return []
     if not isinstance(payload, list):
         return []
-    parsed = (_parse_one(item) for item in payload)
-    return [event for event in parsed if event is not None]
+
+    events: list[Event] = []
+    for item in payload:
+        try:
+            event = _parse_one(item)
+        except (ValueError, TypeError, OverflowError):
+            continue
+        if event is not None:
+            events.append(event)
+    return events
 
 
 @dataclass(frozen=True)
