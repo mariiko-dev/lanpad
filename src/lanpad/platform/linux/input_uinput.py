@@ -60,6 +60,25 @@ class UinputInput(InputBackend):
     def _emit_key(self, code: int, value: int) -> None:
         self._device.write(E.EV_KEY, code, value)
 
+    def _press(self, code: int, pressed: list[int]) -> None:
+        """Нажать клавишу, заранее записав её в список удерживаемых.
+
+        Запись идёт до отправки события намеренно: если отправка сорвётся
+        на полпути, клавиша всё равно попадёт в список и будет отпущена.
+        Лишнее отпускание ненажатой клавиши безвредно, зажатая — нет.
+        """
+        pressed.append(code)
+        self._emit_key(code, 1)
+        self._device.syn()
+
+    def _release_one(self, code: int) -> None:
+        """Отпустить клавишу, что бы ни случилось с устройством."""
+        try:
+            self._emit_key(code, 0)
+            self._device.syn()
+        except OSError:
+            pass
+
     def move(self, dx: int, dy: int) -> None:
         if not (dx or dy):
             return
@@ -114,16 +133,14 @@ class UinputInput(InputBackend):
             return
         modifiers, final = codes[:-1], codes[-1]
         with self._lock:
-            for code in modifiers:
-                self._emit_key(code, 1)
-                self._device.syn()
-            self._emit_key(final, 1)
-            self._device.syn()
-            self._emit_key(final, 0)
-            self._device.syn()
-            for code in reversed(modifiers):
-                self._emit_key(code, 0)
-                self._device.syn()
+            pressed: list[int] = []
+            try:
+                for code in modifiers:
+                    self._press(code, pressed)
+                self._press(final, pressed)
+            finally:
+                while pressed:
+                    self._release_one(pressed.pop())
 
     def type_text(self, text: str) -> None:
         """Набрать текст посимвольно.
@@ -131,20 +148,27 @@ class UinputInput(InputBackend):
         Работает только для символов из раскладки. Кириллица и прочее
         отправляются через буфер обмена — этим занимается сессия.
         """
-        if not text or any(char not in CHARMAP for char in text):
+        if not self.can_type(text):
             return
         with self._lock:
-            for char in text:
-                code, needs_shift = CHARMAP[char]
-                if needs_shift:
-                    self._emit_key(E.KEY_LEFTSHIFT, 1)
-                self._emit_key(code, 1)
-                self._device.syn()
-                self._emit_key(code, 0)
-                if needs_shift:
-                    self._emit_key(E.KEY_LEFTSHIFT, 0)
-                self._device.syn()
-                time.sleep(TYPE_DELAY_SECONDS)
+            shift_down = False
+            try:
+                for char in text:
+                    code, needs_shift = CHARMAP[char]
+                    if needs_shift:
+                        self._emit_key(E.KEY_LEFTSHIFT, 1)
+                        shift_down = True
+                    self._emit_key(code, 1)
+                    self._device.syn()
+                    self._emit_key(code, 0)
+                    if needs_shift:
+                        self._emit_key(E.KEY_LEFTSHIFT, 0)
+                        shift_down = False
+                    self._device.syn()
+                    time.sleep(TYPE_DELAY_SECONDS)
+            finally:
+                if shift_down:
+                    self._release_one(E.KEY_LEFTSHIFT)
 
     def can_type(self, text: str) -> bool:
         """Можно ли набрать текст напрямую, без буфера обмена."""
