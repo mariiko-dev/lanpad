@@ -72,11 +72,18 @@ class UinputInput(InputBackend):
         self._device.syn()
 
     def _release_one(self, code: int) -> None:
-        """Отпустить клавишу, что бы ни случилось с устройством."""
+        """Отпустить клавишу, что бы ни случилось с устройством.
+
+        Глушится любое исключение намеренно: это путь аварийной уборки,
+        и оборвать его на первой же ошибке значит оставить остальные
+        клавиши зажатыми — ровно та беда, от которой уборка и защищает.
+        Настоящая поломка вызывающему всё равно видна: исключение с пути
+        нажатия пробрасывается наружу.
+        """
         try:
             self._emit_key(code, 0)
             self._device.syn()
-        except OSError:
+        except Exception:  # noqa: BLE001
             pass
 
     def move(self, dx: int, dy: int) -> None:
@@ -151,24 +158,26 @@ class UinputInput(InputBackend):
         if not self.can_type(text):
             return
         with self._lock:
-            shift_down = False
+            pressed: list[int] = []
             try:
                 for char in text:
                     code, needs_shift = CHARMAP[char]
                     if needs_shift:
+                        pressed.append(E.KEY_LEFTSHIFT)
                         self._emit_key(E.KEY_LEFTSHIFT, 1)
-                        shift_down = True
+                    pressed.append(code)
                     self._emit_key(code, 1)
                     self._device.syn()
                     self._emit_key(code, 0)
+                    pressed.remove(code)
                     if needs_shift:
                         self._emit_key(E.KEY_LEFTSHIFT, 0)
-                        shift_down = False
+                        pressed.remove(E.KEY_LEFTSHIFT)
                     self._device.syn()
                     time.sleep(TYPE_DELAY_SECONDS)
             finally:
-                if shift_down:
-                    self._release_one(E.KEY_LEFTSHIFT)
+                while pressed:
+                    self._release_one(pressed.pop())
 
     def can_type(self, text: str) -> bool:
         """Можно ли набрать текст напрямую, без буфера обмена."""

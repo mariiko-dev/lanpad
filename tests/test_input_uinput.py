@@ -43,14 +43,15 @@ class ExplodingDevice:
     пытался отправить уже на сломанном устройстве.
     """
 
-    def __init__(self, fail_after: int) -> None:
+    def __init__(self, fail_after: int, error: type[Exception] = OSError) -> None:
         self.fail_after = fail_after
+        self.error = error
         self.events: list[tuple[int, int, int]] = []
 
     def write(self, etype: int, code: int, value: int) -> None:
         self.events.append((etype, code, value))
         if len(self.events) > self.fail_after:
-            raise OSError("устройство отвалилось")
+            raise self.error("устройство отвалилось")
 
     def syn(self) -> None:
         pass
@@ -92,12 +93,40 @@ def test_combo_releases_everything_when_first_write_fails():
     assert held_keys(device.events) == set()
 
 
-def test_type_text_releases_shift_when_device_fails():
-    device = ExplodingDevice(fail_after=1)
-    backend = backend_with(device)
-    with pytest.raises(OSError):
-        backend.type_text("A")
-    assert E.KEY_LEFTSHIFT not in held_keys(device.events)
+def sweep_positions(action, text_or_keys, limit: int, error: type[Exception]):
+    """Прогнать сбой устройства на каждой позиции последовательности."""
+    leaks = {}
+    for fail_after in range(limit):
+        device = ExplodingDevice(fail_after=fail_after, error=error)
+        backend = backend_with(device)
+        try:  # noqa: SIM105
+            action(backend, text_or_keys)
+        except Exception:  # noqa: BLE001, S110
+            pass
+        held = held_keys(device.events)
+        if held:
+            leaks[fail_after] = sorted(held)
+    return leaks
+
+
+def test_type_text_never_leaves_keys_held_at_any_failure_point():
+    leaks = sweep_positions(lambda b, t: b.type_text(t), "aAbB", 14, OSError)
+    assert leaks == {}
+
+
+def test_combo_never_leaves_keys_held_at_any_failure_point():
+    leaks = sweep_positions(lambda b, k: b.combo(k), ["ctrl", "shift", "c"], 10, OSError)
+    assert leaks == {}
+
+
+def test_type_text_survives_a_non_oserror_device():
+    leaks = sweep_positions(lambda b, t: b.type_text(t), "aA", 8, RuntimeError)
+    assert leaks == {}
+
+
+def test_combo_survives_a_non_oserror_device():
+    leaks = sweep_positions(lambda b, k: b.combo(k), ["ctrl", "alt", "t"], 8, RuntimeError)
+    assert leaks == {}
 
 
 def test_combo_leaves_nothing_held_on_the_happy_path():
