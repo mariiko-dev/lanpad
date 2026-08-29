@@ -1,4 +1,6 @@
-from lanpad.platform.linux.audio_wpctl import parse_volume
+import pytest
+
+from lanpad.platform.linux.audio_wpctl import WpctlAudio, parse_volume
 
 
 def test_parses_plain_volume():
@@ -32,3 +34,29 @@ def test_unparseable_output_gives_none_volume():
 
 def test_empty_output_gives_none_volume():
     assert parse_volume("").volume is None
+
+
+@pytest.mark.parametrize("garbage", [
+    "Volume: .\n",
+    "Volume: ..\n",
+    "Volume: 1.2.3\n",
+    "Volume: 1.\n",
+    "Volume: не число\n",
+    "Volume:\n",
+    "   \n",
+    "",
+])
+def test_garbage_output_never_raises(garbage):
+    """Сломанный звук не должен ронять агент."""
+    state = parse_volume(garbage)
+    assert state.volume is None or isinstance(state.volume, int)
+
+
+def test_trailing_garbage_after_valid_number_is_ignored():
+    assert parse_volume("Volume: 0.62.7\n").volume == 62
+
+
+def test_state_survives_garbage_from_the_command(monkeypatch):
+    """Даже если команда вернула мусор, чтение состояния не падает."""
+    monkeypatch.setattr(WpctlAudio, "_run", lambda self, *args: "Volume: 1.2.3\n")
+    assert WpctlAudio().state() == parse_volume("Volume: 1.2.3\n")

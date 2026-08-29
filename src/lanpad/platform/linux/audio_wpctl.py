@@ -9,16 +9,24 @@ from lanpad.protocol import AudioState
 
 SINK = "@DEFAULT_AUDIO_SINK@"
 TIMEOUT = 2
-_VOLUME_RE = re.compile(r"Volume:\s*([0-9.]+)")
+_VOLUME_RE = re.compile(r"Volume:\s*([0-9]+(?:\.[0-9]+)?)")
 
 
 def parse_volume(output: str) -> AudioState:
-    """Разобрать вывод `wpctl get-volume`."""
+    """Разобрать вывод `wpctl get-volume`.
+
+    Любая неожиданная форма вывода означает «громкость неизвестна», а не
+    падение: сломанный звук не должен ронять агент целиком.
+    """
     match = _VOLUME_RE.search(output)
     if match is None:
         return AudioState(volume=None, muted=False)
+    try:
+        level = float(match.group(1))
+    except ValueError:
+        return AudioState(volume=None, muted=False)
     return AudioState(
-        volume=round(float(match.group(1)) * 100),
+        volume=round(level * 100),
         muted="[MUTED]" in output,
     )
 
