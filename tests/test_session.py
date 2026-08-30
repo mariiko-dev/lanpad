@@ -150,7 +150,7 @@ def test_failing_event_does_not_propagate():
 
 def test_broken_listener_does_not_break_input_handling():
     session, backends, _ = make_session()
-    session.set_listener(lambda _s: (_ for _ in ()).throw(Boom()))
+    session.add_listener(lambda _s: (_ for _ in ()).throw(Boom()))
     session.handle([p.VolumeSet(40), p.Click("l")])
     assert ("click", "l") in backends.input.calls
 
@@ -158,7 +158,7 @@ def test_broken_listener_does_not_break_input_handling():
 def test_broken_listener_does_not_propagate_from_media_subscription():
     """Исключение отсюда ушло бы в диспетчер сигналов D-Bus и убило подписку."""
     session, backends, _ = make_session()
-    session.set_listener(lambda _s: (_ for _ in ()).throw(Boom()))
+    session.add_listener(lambda _s: (_ for _ in ()).throw(Boom()))
     backends.media.command("play")
 
 
@@ -166,6 +166,31 @@ def test_failing_state_collection_does_not_propagate():
     session, backends, _ = make_session()
     backends.audio.state = lambda: (_ for _ in ()).throw(Boom())
     session.handle([p.VolumeSet(40)])
+
+
+def test_state_reaches_every_listener():
+    """Телефонов в сети бывает больше одного."""
+    session, _, _ = make_session()
+    first, second = [], []
+    session.add_listener(first.append)
+    session.add_listener(second.append)
+    session.handle([p.VolumeSet(30)])
+    assert len(first) == 1
+    assert len(second) == 1
+
+
+def test_removed_listener_stops_receiving():
+    session, _, _ = make_session()
+    seen = []
+    session.add_listener(seen.append)
+    session.remove_listener(seen.append)
+    session.handle([p.VolumeSet(30)])
+    assert seen == []
+
+
+def test_removing_an_unknown_listener_is_harmless():
+    session, _, _ = make_session()
+    session.remove_listener(lambda _s: None)
 
 
 def test_every_event_type_reaches_its_backend():

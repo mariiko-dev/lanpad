@@ -7,6 +7,7 @@
 
 import logging
 from collections.abc import Callable
+from contextlib import suppress
 
 from lanpad import protocol as p
 from lanpad.platform.base import Backends
@@ -18,9 +19,11 @@ _TERMINAL_PASTE_KEYS = ["ctrl", "shift", "v"]
 
 
 class Session:
-    def __init__(self, backends: Backends, on_state: Callable[[dict], None]) -> None:
+    def __init__(self, backends: Backends, on_state: Callable[[dict], None] | None = None) -> None:
         self._backends = backends
-        self._on_state = on_state
+        self._listeners: list[Callable[[dict], None]] = []
+        if on_state is not None:
+            self._listeners.append(on_state)
         if backends.media is not None:
             backends.media.subscribe(self._on_media_changed)
 
@@ -108,9 +111,17 @@ class Session:
     def _on_media_changed(self, _state: p.MediaState | None) -> None:
         self._push()
 
-    def set_listener(self, on_state: Callable[[dict], None]) -> None:
-        """Переключить получателя состояния на время жизни соединения."""
-        self._on_state = on_state
+    def add_listener(self, on_state: Callable[[dict], None]) -> None:
+        """Подписать получателя состояния.
+
+        Получателей может быть несколько: телефонов в сети бывает больше
+        одного, и каждое соединение подписывается своим.
+        """
+        self._listeners.append(on_state)
+
+    def remove_listener(self, on_state: Callable[[dict], None]) -> None:
+        with suppress(ValueError):
+            self._listeners.remove(on_state)
 
     def media_art_path(self, art_id: str) -> str | None:
         """Путь к файлу обложки — только из метаданных текущего трека."""
@@ -126,16 +137,23 @@ class Session:
         )
 
     def _push(self) -> None:
-        """Разослать состояние.
+        """Разослать состояние всем подписчикам.
 
-        Сбор состояния и отправка защищены: получатель живёт на другом
-        конце сети, а `_on_media_changed` вызывается из диспетчера
-        сигналов D-Bus, и исключение оттуда убило бы подписку целиком.
+        Сбор состояния и каждая отправка защищены по отдельности:
+        получатели живут на другом конце сети, а `_on_media_changed`
+        вызывается из диспетчера сигналов D-Bus, и исключение оттуда
+        убило бы подписку целиком.
         """
         try:
-            self._on_state(self.current_state())
+            state = self.current_state()
         except Exception:  # noqa: BLE001
-            _log.exception("не удалось разослать состояние")
+            _log.exception("не удалось собрать состояние")
+            return
+        for listener in list(self._listeners):
+            try:
+                listener(state)
+            except Exception:  # noqa: BLE001
+                _log.exception("получатель состояния бросил исключение")
 
     def close(self) -> None:
         self._backends.close()

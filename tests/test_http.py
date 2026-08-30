@@ -60,3 +60,35 @@ def test_missing_static_file_is_refused(tmp_path):
 def test_cache_headers(path, expected_immutable):
     header = h.cache_header_for(path)
     assert ("immutable" in header) is expected_immutable
+
+
+def test_literal_address_host_is_accepted():
+    assert h.origin_allowed(None, "192.168.1.50:8477") is True
+    assert h.origin_allowed(None, "[::1]:8477") is True
+    assert h.origin_allowed(None, "localhost:8477") is True
+
+
+def test_named_host_is_refused_even_when_origin_matches():
+    """Иначе сайт, перепривязавший имя к адресу агента, проходит барьер."""
+    assert h.origin_allowed("http://evil.com", "evil.com") is False
+    assert h.origin_allowed("http://evil.com:8477", "evil.com:8477") is False
+
+
+def test_https_origin_is_refused():
+    assert h.origin_allowed("https://192.168.1.50:8477", "192.168.1.50:8477") is False
+
+
+def test_null_byte_in_static_path_is_refused(tmp_path):
+    assert h.safe_static_path(tmp_path, "/a\x00.js") is None
+
+
+def test_static_path_never_raises(tmp_path):
+    """Этот путь приходит из сети и доступен без токена."""
+    for weird in ["/a\x00.js", "/" + "x" * 5000, "/%2e%2e%2f%2e%2e%2fetc/passwd",
+                  "//etc/passwd", "/./././", "/\n", "/\\..\\..\\etc"]:
+        h.safe_static_path(tmp_path, weird)
+
+
+def test_art_cache_header_is_private():
+    """В адресе обложки есть токен — общим кэшам такой ответ не отдают."""
+    assert h.PRIVATE_IMMUTABLE_HEADER.startswith("private")
