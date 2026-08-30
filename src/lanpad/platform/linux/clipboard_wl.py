@@ -15,7 +15,7 @@ class WaylandClipboard(ClipboardBackend):
     @staticmethod
     def _pick_command() -> list[str] | None:
         if shutil.which("wl-copy"):
-            return ["wl-copy", "--"]
+            return ["wl-copy"]
         if shutil.which("xclip"):
             return ["xclip", "-selection", "clipboard"]
         return None
@@ -25,15 +25,28 @@ class WaylandClipboard(ClipboardBackend):
         return WaylandClipboard._pick_command() is not None
 
     def copy(self, text: str) -> bool:
+        """Положить текст в буфер. Возвращает успех.
+
+        Текст подаётся на стандартный ввод, а не аргументом командной
+        строки: так снимается предел её длины и нулевой байт внутри
+        текста не превращается в исключение. Обе команды такой режим
+        поддерживают штатно.
+
+        Признак успеха здесь не формальность. Сессия вставляет текст
+        сочетанием клавиш только после успешного копирования — иначе в
+        чужое окно уехало бы прежнее содержимое буфера.
+        """
         if self._command is None:
             return False
         try:
-            if self._command[0] == "wl-copy":
-                subprocess.run([*self._command, text], check=False, timeout=TIMEOUT)  # noqa: S603
-            else:
-                subprocess.run(  # noqa: S603
-                    self._command, input=text, text=True, check=False, timeout=TIMEOUT,
-                )
-        except (OSError, subprocess.SubprocessError):
+            subprocess.run(  # noqa: S603
+                self._command,
+                input=text,
+                text=True,
+                capture_output=True,
+                check=True,
+                timeout=TIMEOUT,
+            )
+        except (OSError, ValueError, subprocess.SubprocessError):
             return False
         return True
