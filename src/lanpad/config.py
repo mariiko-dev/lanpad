@@ -102,6 +102,23 @@ def is_private_client(host: str) -> bool:
     return address.is_private or address.is_loopback or address.is_link_local
 
 
+def is_loopback_client(host: str) -> bool:
+    """Only this machine.
+
+    Stricter than `is_private_client` on purpose: the console shows the
+    pairing QR, and the QR carries the token. A page reachable from the
+    whole network would hand the keyboard to anyone on the Wi-Fi.
+    """
+    if not isinstance(host, str):
+        return False
+    try:
+        address = ipaddress.ip_address(host.strip("[]"))
+    except ValueError:
+        return False
+    mapped = getattr(address, "ipv4_mapped", None)
+    return (mapped or address).is_loopback
+
+
 def port() -> int:
     raw = os.environ.get("LANPAD_PORT")
     if raw is None:

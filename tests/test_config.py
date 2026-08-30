@@ -128,3 +128,30 @@ def test_unreadable_token_file_raises_instead_of_regenerating(tmp_path):
 @pytest.mark.parametrize("host", [None, 123, b"127.0.0.1", ["127.0.0.1"]])
 def test_non_string_host_is_refused(host):
     assert config.is_private_client(host) is False
+
+
+@pytest.mark.parametrize("host", ["127.0.0.1", "127.0.1.1", "::1", "[::1]"])
+def test_loopback_clients_are_allowed(host):
+    assert config.is_loopback_client(host) is True
+
+
+@pytest.mark.parametrize("host", [
+    "192.168.1.50", "10.0.0.7", "172.16.3.9", "fe80::1", "8.8.8.8",
+])
+def test_everything_beyond_this_machine_is_refused(host):
+    """The console shows the QR, and the QR carries the token."""
+    assert config.is_loopback_client(host) is False
+
+
+@pytest.mark.parametrize("host", [None, 123, b"127.0.0.1", "", "   ", "not an address"])
+def test_garbage_is_refused(host):
+    assert config.is_loopback_client(host) is False
+
+
+def test_mapped_loopback_is_allowed():
+    """A dual-stack socket reports IPv4 loopback in this form."""
+    assert config.is_loopback_client("::ffff:127.0.0.1") is True
+
+
+def test_mapped_lan_address_is_still_refused():
+    assert config.is_loopback_client("::ffff:192.168.1.50") is False
