@@ -85,3 +85,46 @@ def test_port_reads_environment(monkeypatch):
 def test_invalid_port_falls_back_to_default(monkeypatch):
     monkeypatch.setenv("LANPAD_PORT", "не число")
     assert config.port() == config.DEFAULT_PORT
+
+
+@pytest.mark.parametrize("candidate", [
+    "токен", "tokén", "🔑", 123, None, b"token", ["token"],
+])
+def test_token_comparison_refuses_instead_of_raising(candidate):
+    """Барьер обязан отказывать, а не падать от присланного мусора."""
+    assert config.token_matches(candidate, "token") is False
+
+
+def test_token_comparison_survives_non_ascii_stored_token():
+    assert config.token_matches("token", "токен") is False
+
+
+def test_existing_token_file_permissions_are_hardened(tmp_path):
+    """Файл мог приехать из резервной копии с правами, открытыми всем."""
+    token_file = tmp_path / "token"
+    token_file.write_text("существующий\n")
+    token_file.chmod(0o644)
+    assert config.load_or_create_token(token_file) == "существующий"
+    assert token_file.stat().st_mode & 0o077 == 0
+
+
+def test_created_token_file_is_private_from_the_start(tmp_path):
+    token_file = tmp_path / "token"
+    config.load_or_create_token(token_file)
+    assert token_file.stat().st_mode & 0o077 == 0
+
+
+def test_unreadable_token_file_raises_instead_of_regenerating(tmp_path):
+    """Тихая перегенерация обесценила бы все спаренные телефоны."""
+    token_file = tmp_path / "token"
+    token_file.write_text("важный\n")
+    token_file.chmod(0o000)
+    with pytest.raises(OSError):
+        config.load_or_create_token(token_file)
+    token_file.chmod(0o600)
+    assert token_file.read_text().strip() == "важный"
+
+
+@pytest.mark.parametrize("host", [None, 123, b"127.0.0.1", ["127.0.0.1"]])
+def test_non_string_host_is_refused(host):
+    assert config.is_private_client(host) is False
