@@ -44,14 +44,21 @@ def main() -> int:
     args = parser.parse_args()
 
     token = config.load_or_create_token()
-    listen_port = args.port or config.port()
+    listen_port = args.port if args.port is not None else config.port()
+    if not 1 <= listen_port <= 65535:
+        print(f"Порт должен быть от 1 до 65535, получено: {listen_port}", file=sys.stderr)
+        return 1
 
     if args.qr:
         addresses = qr.lan_addresses()
         if not addresses:
             print("Нет адреса в локальной сети.", file=sys.stderr)
             return 1
-        qr.save_png(qr.connect_url(addresses[0], listen_port, token), Path(args.qr))
+        try:
+            qr.save_png(qr.connect_url(addresses[0], listen_port, token), Path(args.qr))
+        except OSError as exc:
+            print(f"Не удалось записать {args.qr}: {exc.strerror or exc}", file=sys.stderr)
+            return 1
         print(f"QR сохранён: {args.qr}")
         return 0
 
@@ -67,7 +74,15 @@ def main() -> int:
         return 1
 
     session = Session(backends)
-    server = make_server(session, token, WEB_ROOT, listen_port)
+    try:
+        server = make_server(session, token, WEB_ROOT, listen_port)
+    except OSError as exc:
+        session.close()
+        print(f"Не удалось занять порт {listen_port}: {exc.strerror or exc}", file=sys.stderr)
+        print("Возможно, агент уже запущен. Проверьте:", file=sys.stderr)
+        print("    systemctl --user status lanpad", file=sys.stderr)
+        print("Либо укажите другой порт: lanpad --port 8478", file=sys.stderr)
+        return 1
 
     _print_invitation(token, listen_port)
     caps = backends.capabilities()

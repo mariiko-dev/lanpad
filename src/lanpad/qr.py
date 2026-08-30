@@ -9,23 +9,35 @@ from qrcode.image.pure import PyPNGImage
 
 
 def lan_addresses() -> list[str]:
-    """Адреса машины в локальной сети, без петлевого интерфейса."""
-    found: set[str] = set()
+    """Адреса машины в локальной сети, без петлевого интерфейса.
+
+    Первым идёт адрес, выбранный ядром для исходящего маршрута: именно
+    он вероятнее всего достижим с телефона. Остальные добавляются
+    следом как запасные — сортировка задвинула бы нужный за адрес VPN.
+    """
+    primary: str | None = None
+    probe = None
     try:
         probe = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
         probe.connect(("10.255.255.255", 1))
-        found.add(probe.getsockname()[0])
-        probe.close()
+        primary = probe.getsockname()[0]
     except OSError:
         pass
+    finally:
+        if probe is not None:
+            probe.close()
+
+    others: set[str] = set()
     try:
         for info in socket.getaddrinfo(socket.gethostname(), None, socket.AF_INET):
             address = info[4][0]
-            if not address.startswith("127."):
-                found.add(address)
+            if not address.startswith("127.") and address != primary:
+                others.add(address)
     except socket.gaierror:
         pass
-    return sorted(found)
+
+    found = sorted(others)
+    return [primary, *found] if primary else found
 
 
 def connect_url(host: str, port: int, token: str) -> str:
@@ -34,7 +46,7 @@ def connect_url(host: str, port: int, token: str) -> str:
 
 def render_terminal(text: str) -> str:
     """QR символами полублока — помещается в обычное окно терминала."""
-    code = qrcode.QRCode(border=2)
+    code = qrcode.QRCode(border=4)
     code.add_data(text)
     code.make(fit=True)
     matrix = code.get_matrix()
