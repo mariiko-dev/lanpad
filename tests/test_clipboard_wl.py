@@ -62,12 +62,15 @@ def test_copy_sends_text_on_stdin_not_as_argument(clipboard, monkeypatch):
     assert kwargs["input"] == "секрет"
 
 
-def test_copy_hides_command_output(clipboard, monkeypatch):
-    """Иначе вывод команды сыплется в консоль агента."""
+def test_copy_discards_command_output_without_reading_it(clipboard, monkeypatch):
+    """Захват вывода повесил бы xclip: он уходит в фон, не закрывая дескрипторы."""
     spy = RunSpy()
     monkeypatch.setattr(subprocess, "run", spy)
     clipboard.copy("текст")
-    assert spy.calls[0][1]["capture_output"] is True
+    kwargs = spy.calls[0][1]
+    assert kwargs["stdout"] is subprocess.DEVNULL
+    assert kwargs["stderr"] is subprocess.DEVNULL
+    assert "capture_output" not in kwargs
 
 
 @pytest.mark.parametrize("text", [
