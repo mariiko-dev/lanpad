@@ -121,3 +121,73 @@ def test_missing_backends_are_tolerated():
     session = Session(backends, on_state=lambda _: None)
     session.handle([p.VolumeSet(50), p.MediaCommand("play"), p.Paste("x", terminal=False)])
     assert backends.input.calls == []
+
+
+class Boom(Exception):
+    """Отдельный тип, чтобы не спутать с настоящей ошибкой в тесте."""
+
+
+def test_failing_event_does_not_abort_the_rest_of_the_batch():
+    session, backends, _ = make_session()
+    backends.audio.set_percent = lambda _p: (_ for _ in ()).throw(Boom())
+    session.handle([p.Move(1, 1), p.VolumeSet(50), p.Click("l")])
+    assert ("click", "l") in backends.input.calls
+
+
+def test_button_release_survives_a_failure_earlier_in_the_batch():
+    """Иначе кнопка мыши останется зажатой после перетаскивания."""
+    session, backends, _ = make_session()
+    backends.audio.set_percent = lambda _p: (_ for _ in ()).throw(Boom())
+    session.handle([p.Button("l", True), p.VolumeSet(50), p.Button("l", False)])
+    assert ("button", "l", False) in backends.input.calls
+
+
+def test_failing_event_does_not_propagate():
+    session, backends, _ = make_session()
+    backends.input.move = lambda _dx, _dy: (_ for _ in ()).throw(Boom())
+    session.handle([p.Move(1, 1)])
+
+
+def test_broken_listener_does_not_break_input_handling():
+    session, backends, _ = make_session()
+    session.set_listener(lambda _s: (_ for _ in ()).throw(Boom()))
+    session.handle([p.VolumeSet(40), p.Click("l")])
+    assert ("click", "l") in backends.input.calls
+
+
+def test_broken_listener_does_not_propagate_from_media_subscription():
+    """Исключение отсюда ушло бы в диспетчер сигналов D-Bus и убило подписку."""
+    session, backends, _ = make_session()
+    session.set_listener(lambda _s: (_ for _ in ()).throw(Boom()))
+    backends.media.command("play")
+
+
+def test_failing_state_collection_does_not_propagate():
+    session, backends, _ = make_session()
+    backends.audio.state = lambda: (_ for _ in ()).throw(Boom())
+    session.handle([p.VolumeSet(40)])
+
+
+def test_every_event_type_reaches_its_backend():
+    """Пропущенная ветка в match молча проглотила бы события."""
+    session, backends, _ = make_session()
+    session.handle([
+        p.Wheel(3),
+        p.Button("m", True),
+        p.Button("m", False),
+        p.Tap("escape"),
+        p.KeyHold("ctrl", True),
+        p.KeyHold("ctrl", False),
+        p.Combo(["ctrl", "c"]),
+        p.VolumeStep(-5),
+        p.VolumeMuteToggle(),
+    ])
+    assert ("wheel", 3) in backends.input.calls
+    assert ("button", "m", True) in backends.input.calls
+    assert ("button", "m", False) in backends.input.calls
+    assert ("tap", "escape") in backends.input.calls
+    assert ("key_hold", "ctrl", True) in backends.input.calls
+    assert ("key_hold", "ctrl", False) in backends.input.calls
+    assert ("combo", ["ctrl", "c"]) in backends.input.calls
+    assert ("step", -5) in backends.audio.calls
+    assert ("toggle_mute",) in backends.audio.calls

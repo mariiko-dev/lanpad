@@ -5,10 +5,13 @@
 обратную сторону и съедало ту самую задержку, ради которой всё делается.
 """
 
+import logging
 from collections.abc import Callable
 
 from lanpad import protocol as p
 from lanpad.platform.base import Backends
+
+_log = logging.getLogger(__name__)
 
 _CYRILLIC_FALLBACK_KEYS = ["ctrl", "v"]
 _TERMINAL_PASTE_KEYS = ["ctrl", "shift", "v"]
@@ -24,9 +27,20 @@ class Session:
     # --- приём событий ----------------------------------------------------
 
     def handle(self, events: list[p.Event]) -> None:
+        """Применить пакет событий.
+
+        Каждое событие защищено отдельно намеренно. Телефон шлёт
+        перетаскивание как пару «нажать — отпустить» с движениями между
+        ними, и обрыв пакета посередине оставил бы кнопку зажатой.
+        Разбор протокола так же снисходителен к отдельному элементу —
+        слой применения обязан вести себя согласованно.
+        """
         state_touched = False
         for event in events:
-            state_touched |= self._apply(event)
+            try:
+                state_touched |= self._apply(event)
+            except Exception:  # noqa: BLE001
+                _log.exception("не удалось применить событие %r", event)
         if state_touched:
             self._push()
 
@@ -112,7 +126,16 @@ class Session:
         )
 
     def _push(self) -> None:
-        self._on_state(self.current_state())
+        """Разослать состояние.
+
+        Сбор состояния и отправка защищены: получатель живёт на другом
+        конце сети, а `_on_media_changed` вызывается из диспетчера
+        сигналов D-Bus, и исключение оттуда убило бы подписку целиком.
+        """
+        try:
+            self._on_state(self.current_state())
+        except Exception:  # noqa: BLE001
+            _log.exception("не удалось разослать состояние")
 
     def close(self) -> None:
         self._backends.close()
