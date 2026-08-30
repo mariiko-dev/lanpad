@@ -10,3 +10,5 @@ build/
 *.egg-info/
 node_modules/
 .superpowers/
+web/node_modules/
+bun.lockb
