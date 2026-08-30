@@ -32,7 +32,22 @@ def _print_invitation(token: str, listen_port: int) -> None:
     print()
 
 
+def _use_line_buffering() -> None:
+    """Отдавать вывод построчно, а не копить в буфере.
+
+    Под systemd стандартный вывод — труба, и Python переключается на
+    блочную буферизацию. Приглашение с QR короче буфера, поэтому оседает
+    в нём и не доходит до журнала — а журнал и есть штатный способ
+    получить код для спаривания.
+    """
+    try:  # noqa: SIM105
+        sys.stdout.reconfigure(line_buffering=True)
+    except (AttributeError, ValueError):
+        pass
+
+
 def main() -> int:
+    _use_line_buffering()
     parser = argparse.ArgumentParser(
         prog="lanpad",
         description="Телефон как тачпад и пульт для этого компьютера.",
