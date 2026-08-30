@@ -30,9 +30,9 @@ dependencies = [
 ]
 
 [project.urls]
-Homepage = "https://github.com/midixyz/lanpad"
-Source = "https://github.com/midixyz/lanpad"
-Issues = "https://github.com/midixyz/lanpad/issues"
+Homepage = "https://github.com/mariiko-dev/lanpad"
+Source = "https://github.com/mariiko-dev/lanpad"
+Issues = "https://github.com/mariiko-dev/lanpad/issues"
 
 [project.optional-dependencies]
 dev = ["pytest>=8.0", "ruff>=0.6"]
