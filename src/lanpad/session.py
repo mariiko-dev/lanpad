@@ -1,0 +1,118 @@
+"""Применение событий к системе и рассылка состояния телефону.
+
+Состояние отправляется по изменению, а не по расписанию. Движения курсора
+изменением не считаются: иначе каждое касание пальца порождало бы пакет в
+обратную сторону и съедало ту самую задержку, ради которой всё делается.
+"""
+
+from collections.abc import Callable
+
+from lanpad import protocol as p
+from lanpad.platform.base import Backends
+
+_CYRILLIC_FALLBACK_KEYS = ["ctrl", "v"]
+_TERMINAL_PASTE_KEYS = ["ctrl", "shift", "v"]
+
+
+class Session:
+    def __init__(self, backends: Backends, on_state: Callable[[dict], None]) -> None:
+        self._backends = backends
+        self._on_state = on_state
+        if backends.media is not None:
+            backends.media.subscribe(self._on_media_changed)
+
+    # --- приём событий ----------------------------------------------------
+
+    def handle(self, events: list[p.Event]) -> None:
+        state_touched = False
+        for event in events:
+            state_touched |= self._apply(event)
+        if state_touched:
+            self._push()
+
+    def _apply(self, event: p.Event) -> bool:  # noqa: PLR0911, PLR0912
+        """Применить событие. Возвращает True, если состояние могло измениться."""
+        backends = self._backends
+        match event:
+            case p.Move(dx, dy):
+                backends.input.move(dx, dy)
+            case p.Wheel(amount):
+                backends.input.wheel(amount)
+            case p.Button(name, pressed):
+                backends.input.button(name, pressed)
+            case p.Click(name):
+                backends.input.click(name)
+            case p.Tap(key):
+                backends.input.tap(key)
+            case p.KeyHold(key, pressed):
+                backends.input.key_hold(key, pressed)
+            case p.Combo(keys):
+                backends.input.combo(keys)
+            case p.TypeText(text):
+                self._type(text)
+            case p.Paste(text, terminal):
+                self._paste(text, terminal)
+            case p.VolumeStep(delta):
+                if backends.audio is not None:
+                    backends.audio.step(delta)
+                    return True
+            case p.VolumeSet(percent):
+                if backends.audio is not None:
+                    backends.audio.set_percent(percent)
+                    return True
+            case p.VolumeMuteToggle():
+                if backends.audio is not None:
+                    backends.audio.toggle_mute()
+                    return True
+            case p.MediaCommand(action):
+                if backends.media is not None:
+                    backends.media.command(action)
+            case p.Seek(position):
+                if backends.media is not None:
+                    backends.media.seek(position)
+        return False
+
+    # --- текст ------------------------------------------------------------
+
+    def _type(self, text: str) -> None:
+        """Набрать текст напрямую, а непечатаемый — через буфер обмена."""
+        typer = self._backends.input
+        if not typer.can_type(text):
+            self._paste(text, terminal=False)
+            return
+        typer.type_text(text)
+
+    def _paste(self, text: str, terminal: bool) -> None:
+        clipboard = self._backends.clipboard
+        if clipboard is None or not clipboard.copy(text):
+            return
+        keys = _TERMINAL_PASTE_KEYS if terminal else _CYRILLIC_FALLBACK_KEYS
+        self._backends.input.combo(keys)
+
+    # --- состояние --------------------------------------------------------
+
+    def _on_media_changed(self, _state: p.MediaState | None) -> None:
+        self._push()
+
+    def set_listener(self, on_state: Callable[[dict], None]) -> None:
+        """Переключить получателя состояния на время жизни соединения."""
+        self._on_state = on_state
+
+    def media_art_path(self, art_id: str) -> str | None:
+        """Путь к файлу обложки — только из метаданных текущего трека."""
+        media = self._backends.media
+        return None if media is None else media.art_path_for(art_id)
+
+    def current_state(self) -> dict:
+        backends = self._backends
+        return p.state_message(
+            audio=backends.audio.state() if backends.audio is not None else None,
+            media=backends.media.state() if backends.media is not None else None,
+            caps=backends.capabilities(),
+        )
+
+    def _push(self) -> None:
+        self._on_state(self.current_state())
+
+    def close(self) -> None:
+        self._backends.close()
