@@ -10,6 +10,7 @@ from lanpad.protocol import AudioState
 
 SINK = "@DEFAULT_AUDIO_SINK@"
 TIMEOUT = 2
+MAX_LEVEL = 100.0  # 10000% — заведомо выше любого настоящего усиления
 _VOLUME_RE = re.compile(r"Volume:\s*([0-9]+(?:\.[0-9]+)?)")
 
 
@@ -17,17 +18,21 @@ def parse_volume(output: str) -> AudioState:
     """Разобрать вывод `wpctl get-volume`.
 
     Любая неожиданная форма вывода означает «громкость неизвестна», а не
-    падение: сломанный звук не должен ронять агент целиком. Бесконечность
-    проверяется отдельно — `float` возвращает её молча, без исключения.
+    падение: сломанный звук не должен ронять агент целиком.
+
+    Уровень — доля, где 1.0 это сто процентов. Всё, что выходит за
+    пределы правдоподобного усиления, показанием громкости не является
+    и отбрасывается по смыслу. Это заодно снимает переполнение при
+    умножении на сто, из-за которого разбор падал на длинных числах.
     """
     match = _VOLUME_RE.search(output)
     if match is None:
         return AudioState(volume=None, muted=False)
     try:
         level = float(match.group(1))
-    except (ValueError, OverflowError):
+    except ValueError:
         return AudioState(volume=None, muted=False)
-    if not math.isfinite(level):
+    if not math.isfinite(level) or level > MAX_LEVEL:
         return AudioState(volume=None, muted=False)
     return AudioState(
         volume=round(level * 100),

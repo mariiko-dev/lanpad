@@ -62,17 +62,44 @@ def test_state_survives_garbage_from_the_command(monkeypatch):
     assert WpctlAudio().state() == parse_volume("Volume: 1.2.3\n")
 
 
-@pytest.mark.parametrize("digits", [310, 400, 5000])
-def test_absurdly_long_number_does_not_raise(digits):
-    """float() отдаёт бесконечность молча, а round() на ней падает."""
-    assert parse_volume("Volume: " + "9" * digits).volume is None
+def test_no_digit_count_makes_parsing_raise():
+    """Точечные значения дважды промахнулись мимо границы — метём весь диапазон."""
+    for digits in range(1, 400):
+        parse_volume("Volume: " + "9" * digits)
+    for digits in (1_000, 10_000, 100_000):
+        parse_volume("Volume: " + "9" * digits)
 
 
-def test_absurdly_long_fraction_does_not_raise():
-    output = "Volume: " + "1" * 50_000 + "." + "2" * 50_000
+def test_implausible_level_is_reported_as_unknown():
+    """Число из сотен цифр — не показание громкости, а мусор."""
+    assert parse_volume("Volume: " + "9" * 50).volume is None
+    assert parse_volume("Volume: 1000000").volume is None
+
+
+def test_plausible_gain_is_still_reported():
+    """Граница проверяется с обеих сторон: настоящее усиление обязано пройти."""
+    assert parse_volume("Volume: 1.40").volume == 140
+    assert parse_volume("Volume: 11.00").volume == 1100
+
+
+def test_huge_fraction_does_not_raise():
+    output = "Volume: " + "9" * 50_000 + "." + "9" * 50_000
     assert parse_volume(output).volume is None
 
 
-def test_long_but_finite_number_is_still_parsed():
-    """Граница проверяется с обеих сторон: конечное число обязано разобраться."""
-    assert parse_volume("Volume: " + "9" * 300).volume is not None
+def test_state_survives_every_dangerous_input(monkeypatch):
+    """Ни один опасный вывод команды не должен ронять чтение состояния."""
+    dangerous = [
+        "Volume: " + "9" * 307,
+        "Volume: " + "9" * 309,
+        "Volume: .",
+        "Volume: 1.2.3",
+        "Volume:",
+        "",
+    ]
+    for output in dangerous:
+        def make_mock(result):
+            return lambda self, *a: result
+        monkeypatch.setattr(WpctlAudio, "_run", make_mock(output))
+        # Ensure no exception is raised; result may be None or valid int
+        WpctlAudio().state()
