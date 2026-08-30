@@ -47,9 +47,25 @@ def test_private_and_loopback_clients_are_allowed(host):
     assert config.is_private_client(host) is True
 
 
-@pytest.mark.parametrize("host", ["8.8.8.8", "203.0.113.10", "2001:4860:4860::8888"])
+@pytest.mark.parametrize("host", [
+    "8.8.8.8",
+    "1.1.1.1",
+    "93.184.216.34",
+    "2001:4860:4860::8888",
+    "2606:4700:4700::1111",
+])
 def test_public_clients_are_refused(host):
     assert config.is_private_client(host) is False
+
+
+@pytest.mark.parametrize("host", ["203.0.113.10", "198.51.100.5", "192.0.2.7"])
+def test_documentation_ranges_count_as_private(host):
+    """Диапазоны из RFC 5737 зарезервированы под примеры и не маршрутизируются.
+
+    Python относит их к приватным по реестру IANA. Выглядят они как
+    публичные, поэтому легко принять отказ за ошибку и «починить» его.
+    """
+    assert config.is_private_client(host) is True
 
 
 def test_garbage_host_is_refused():
