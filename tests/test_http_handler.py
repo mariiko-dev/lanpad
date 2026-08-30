@@ -208,7 +208,7 @@ def test_websocket_removes_its_listener_on_disconnect(tmp_path):
 def test_post_refuses_non_numeric_content_length(tmp_path):
     """Нечисловая длина роняла обработчик."""
     handler, rec, _ = build(tmp_path, "POST", f"/e?t={TOKEN}",
-                            headers={"Content-Length": "abc"})
+                            headers={"Host": HOSTPORT, "Content-Length": "abc"})
     handler.do_POST()  # не должно бросить
     assert rec.code == 400
 
@@ -216,7 +216,18 @@ def test_post_refuses_non_numeric_content_length(tmp_path):
 def test_post_refuses_oversized_body_without_reading_it(tmp_path):
     """Отрицательная или огромная длина читала тело до конца в память."""
     handler, rec, _ = build(tmp_path, "POST", f"/e?t={TOKEN}", body=b"x" * 64,
-                            headers={"Content-Length": str(h.MAX_BODY_BYTES + 1)})
+                            headers={"Host": HOSTPORT,
+                                     "Content-Length": str(h.MAX_BODY_BYTES + 1)})
     handler.do_POST()
     assert rec.code == 413
     assert handler.rfile.tell() == 0
+
+
+def test_post_from_foreign_origin_is_refused(tmp_path):
+    """У /e тот же барьер источника, что и у /ws: событие приходит тем же путём."""
+    handler, rec, _ = build(tmp_path, "POST", f"/e?t={TOKEN}", body=b"[]",
+                            headers={"Host": HOSTPORT,
+                                     "Origin": "http://evil.example",
+                                     "Content-Length": "2"})
+    handler.do_POST()
+    assert rec.code == 403

@@ -83,7 +83,7 @@ class UinputInput(InputBackend):
         try:
             self._emit_key(code, 0)
             self._device.syn()
-        except Exception:  # noqa: BLE001
+        except Exception:
             pass
 
     def move(self, dx: int, dy: int) -> None:
@@ -112,9 +112,19 @@ class UinputInput(InputBackend):
             self._device.syn()
 
     def click(self, name: str) -> None:
-        self.button(name, True)
-        time.sleep(CLICK_HOLD_SECONDS)
-        self.button(name, False)
+        """Нажать и отпустить кнопку.
+
+        Отпускание идёт через `finally`: зажатая кнопка мыши делает
+        машину почти неуправляемой, как и зажатый модификатор.
+        """
+        code = MOUSE_BUTTONS.get(name)
+        if code is None:
+            return
+        try:
+            self.button(name, True)
+            time.sleep(CLICK_HOLD_SECONDS)
+        finally:
+            self._release_one(code)
 
     def tap(self, key: str) -> None:
         code = code_for(key)

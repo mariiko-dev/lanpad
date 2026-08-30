@@ -118,7 +118,7 @@ def test_unreadable_token_file_raises_instead_of_regenerating(tmp_path):
     """Тихая перегенерация обесценила бы все спаренные телефоны."""
     token_file = tmp_path / "token"
     token_file.write_text("важный\n")
-    token_file.chmod(0o000)
+    token_file.chmod(0o200)
     with pytest.raises(OSError):
         config.load_or_create_token(token_file)
     token_file.chmod(0o600)

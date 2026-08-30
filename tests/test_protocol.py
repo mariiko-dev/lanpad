@@ -139,6 +139,27 @@ def test_bad_number_does_not_destroy_the_rest_of_the_batch():
     assert events == [p.Move(1, 1), p.Wheel(5)]
 
 
-def test_nan_inside_batch_does_not_destroy_the_rest():
-    events = p.parse_events('[["w",1],["vol",NaN],["w",2]]')
-    assert events == [p.Wheel(1), p.Wheel(2)]
+def test_nan_anywhere_in_batch_rejects_the_whole_packet():
+    """`_reject_constant` бракует NaN/Infinity на уровне разбора JSON.
+
+    Такие литералы шлёт только поломанный или подложенный клиент, и
+    честнее отвергнуть весь пакет, чем притворяться, что он частично
+    исполнен.
+    """
+    assert p.parse_events('[["w",1],["vol",NaN],["w",2]]') == []
+
+
+def test_reject_constant_raises_on_every_json_special():
+    for name in ("NaN", "Infinity", "-Infinity"):
+        with pytest.raises(ValueError):
+            p._reject_constant(name)
+
+
+@pytest.mark.parametrize("count,expected", [
+    (p.MAX_EVENTS, p.MAX_EVENTS),
+    (p.MAX_EVENTS + 1, 0),
+])
+def test_batch_size_is_capped(count, expected):
+    """Пакет из сотен максимальных `type` держал бы замок ввода около часа."""
+    payload = json.dumps([["w", 1]] * count)
+    assert len(p.parse_events(payload)) == expected

@@ -47,7 +47,7 @@ class WpctlAudio(AudioBackend):
 
     def _run(self, *args: str) -> str:
         try:
-            result = subprocess.run(  # noqa: S603
+            result = subprocess.run(
                 ["wpctl", *args],
                 capture_output=True, text=True, timeout=TIMEOUT, check=False,
             )

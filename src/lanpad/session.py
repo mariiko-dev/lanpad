@@ -42,12 +42,12 @@ class Session:
         for event in events:
             try:
                 state_touched |= self._apply(event)
-            except Exception:  # noqa: BLE001
+            except Exception:
                 _log.exception("не удалось применить событие %r", event)
         if state_touched:
             self._push()
 
-    def _apply(self, event: p.Event) -> bool:  # noqa: PLR0911, PLR0912
+    def _apply(self, event: p.Event) -> bool:
         """Применить событие. Возвращает True, если состояние могло измениться."""
         backends = self._backends
         match event:
@@ -146,13 +146,13 @@ class Session:
         """
         try:
             state = self.current_state()
-        except Exception:  # noqa: BLE001
+        except Exception:
             _log.exception("не удалось собрать состояние")
             return
         for listener in list(self._listeners):
             try:
                 listener(state)
-            except Exception:  # noqa: BLE001
+            except Exception:
                 _log.exception("получатель состояния бросил исключение")
 
     def close(self) -> None:

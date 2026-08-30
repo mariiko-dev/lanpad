@@ -29,7 +29,7 @@ class Frame:
 
 def accept_key(client_key: str) -> str:
     """Ответ на `Sec-WebSocket-Key` по правилам рукопожатия."""
-    digest = hashlib.sha1((client_key + GUID).encode()).digest()  # noqa: S324
+    digest = hashlib.sha1((client_key + GUID).encode()).digest()
     return base64.b64encode(digest).decode()
 
 

@@ -69,7 +69,7 @@ def main() -> int:
 
     try:
         backends = build_backends()
-    except Exception as exc:  # noqa: BLE001
+    except Exception as exc:
         print(f"Не удалось получить доступ к вводу: {exc}", file=sys.stderr)
         return 1
 

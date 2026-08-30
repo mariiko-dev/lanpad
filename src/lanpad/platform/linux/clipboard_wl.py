@@ -44,7 +44,7 @@ class WaylandClipboard(ClipboardBackend):
         if self._command is None:
             return False
         try:
-            subprocess.run(  # noqa: S603
+            subprocess.run(
                 self._command,
                 input=text,
                 text=True,

@@ -36,7 +36,7 @@ def build_backends(input_backend: InputBackend | None = None) -> Backends:
     if MprisMedia.is_available():
         try:
             media = MprisMedia()
-        except Exception:  # noqa: BLE001 — нет сессионной шины, работаем без медиа
+        except Exception:
             media = None
 
     return Backends(input=input_backend, audio=audio, media=media, clipboard=clipboard)

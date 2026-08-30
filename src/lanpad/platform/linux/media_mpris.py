@@ -10,6 +10,7 @@ import asyncio
 import hashlib
 import logging
 import threading
+from collections import OrderedDict
 from collections.abc import Callable
 from urllib.parse import unquote, urlparse
 
@@ -22,7 +23,20 @@ PLAYER_INTERFACE = "org.mpris.MediaPlayer2.Player"
 
 _log = logging.getLogger(__name__)
 
-_ART_PATHS: dict[str, str] = {}
+_ART_PATHS: OrderedDict[str, str] = OrderedDict()
+MAX_ART_ENTRIES = 32
+
+
+def _remember_art(art_id: str, path: str) -> None:
+    """Запомнить путь к обложке, вытесняя самые старые.
+
+    Без вытеснения `/art` отдавал бы обложки треков, игравших часы
+    назад, хотя обещает отдавать только из текущих метаданных.
+    """
+    _ART_PATHS[art_id] = path
+    _ART_PATHS.move_to_end(art_id)
+    while len(_ART_PATHS) > MAX_ART_ENTRIES:
+        _ART_PATHS.popitem(last=False)
 
 
 def art_id_for(url: str) -> str:
@@ -58,7 +72,7 @@ def _art_of(metadata: dict) -> str | None:
         return None
     if url.startswith("file://"):
         art_id = art_id_for(url)
-        _ART_PATHS[art_id] = unquote(urlparse(url).path)
+        _remember_art(art_id, unquote(urlparse(url).path))
         return f"/art?id={art_id}"
     return url
 
@@ -94,6 +108,8 @@ class MprisMedia(MediaBackend):
         self._subscribers: list[Callable[[MediaState | None], None]] = []
         self._loop: asyncio.AbstractEventLoop | None = None
         self._player = None
+        self._bus = None
+        self._player_name: str | None = None
         self._ready = threading.Event()
         self._stopping = False
         self._thread = threading.Thread(target=self._run_loop, daemon=True, name="lanpad-mpris")
@@ -131,7 +147,7 @@ class MprisMedia(MediaBackend):
         for callback in self._subscribers:
             try:
                 callback(self._state)
-            except Exception:  # noqa: BLE001
+            except Exception:
                 _log.exception("подписчик медиа-состояния бросил исключение")
 
     def _call_on_player(self, method_name: str, **kwargs) -> None:
@@ -156,7 +172,7 @@ class MprisMedia(MediaBackend):
                 )
             else:
                 await getattr(player, method_name)()
-        except Exception:  # noqa: BLE001 — плеер мог исчезнуть между вызовами
+        except Exception:
             return
 
     def _run_loop(self) -> None:
@@ -164,7 +180,7 @@ class MprisMedia(MediaBackend):
         asyncio.set_event_loop(self._loop)
         try:
             self._loop.run_until_complete(self._connect())
-        except Exception:  # noqa: BLE001 — без D-Bus просто нет медиа
+        except Exception:
             _log.info("подключиться к MPRIS не удалось, медиа отключено", exc_info=True)
             self._ready.set()
             return
@@ -175,39 +191,107 @@ class MprisMedia(MediaBackend):
         from dbus_next import BusType
         from dbus_next.aio import MessageBus
 
-        bus = await MessageBus(bus_type=BusType.SESSION).connect()
-        introspection = await bus.introspect("org.freedesktop.DBus", "/org/freedesktop/DBus")
-        proxy = bus.get_proxy_object("org.freedesktop.DBus", "/org/freedesktop/DBus", introspection)
-        names = await proxy.get_interface("org.freedesktop.DBus").call_list_names()
+        self._bus = await MessageBus(bus_type=BusType.SESSION).connect()
+        introspection = await self._bus.introspect(
+            "org.freedesktop.DBus", "/org/freedesktop/DBus"
+        )
+        proxy = self._bus.get_proxy_object(
+            "org.freedesktop.DBus", "/org/freedesktop/DBus", introspection
+        )
+        dbus = proxy.get_interface("org.freedesktop.DBus")
 
-        player_name = next((n for n in names if n.startswith(BUS_PREFIX + ".")), None)
-        if player_name is None:
+        def on_name_owner_changed(name: str, old_owner: str, new_owner: str) -> None:
+            if self._stopping or not name.startswith(BUS_PREFIX + "."):
+                return
+            asyncio.create_task(self._players_changed(name, new_owner))
+
+        dbus.on_name_owner_changed(on_name_owner_changed)
+
+        names = await dbus.call_list_names()
+        found = next((n for n in names if n.startswith(BUS_PREFIX + ".")), None)
+        if found is None:
             self._state = None
+            self._publish()
+            return
+        await self._attach(found)
+
+    async def _players_changed(self, name: str, new_owner: str) -> None:
+        """Плеер появился или ушёл.
+
+        Служба стартует вместе с графической сессией, когда плееров ещё
+        нет, поэтому единственный поиск при запуске оставлял бы медиа
+        мёртвым до перезапуска агента.
+        """
+        if new_owner and self._player_name is None:
+            await self._attach(name)
+            return
+        if not new_owner and name == self._player_name:
+            self._player = None
+            self._player_name = None
+            self._state = None
+            self._publish()
+            await self._attach_any()
+
+    async def _attach_any(self) -> None:
+        """Подхватить любой оставшийся на шине плеер."""
+        if self._bus is None:
+            return
+        try:
+            introspection = await self._bus.introspect(
+                "org.freedesktop.DBus", "/org/freedesktop/DBus"
+            )
+            proxy = self._bus.get_proxy_object(
+                "org.freedesktop.DBus", "/org/freedesktop/DBus", introspection
+            )
+            names = await proxy.get_interface("org.freedesktop.DBus").call_list_names()
+        except Exception:
+            _log.debug("не удалось перечислить имена на шине", exc_info=True)
+            return
+        found = next((n for n in names if n.startswith(BUS_PREFIX + ".")), None)
+        if found is not None:
+            await self._attach(found)
+
+    async def _attach(self, player_name: str) -> None:
+        """Подключиться к плееру и подписаться на его изменения."""
+        if self._bus is None:
+            return
+        try:
+            introspection = await self._bus.introspect(player_name, OBJECT_PATH)
+            player_proxy = self._bus.get_proxy_object(
+                player_name, OBJECT_PATH, introspection
+            )
+            self._player = player_proxy.get_interface(PLAYER_INTERFACE)
+            self._player_name = player_name
+            properties = player_proxy.get_interface("org.freedesktop.DBus.Properties")
+        except Exception:
+            _log.debug("не удалось подключиться к плееру %s", player_name, exc_info=True)
+            self._player = None
+            self._player_name = None
             return
 
-        player_introspection = await bus.introspect(player_name, OBJECT_PATH)
-        player_proxy = bus.get_proxy_object(player_name, OBJECT_PATH, player_introspection)
-        self._player = player_proxy.get_interface(PLAYER_INTERFACE)
-        properties = player_proxy.get_interface("org.freedesktop.DBus.Properties")
-
-        async def refresh() -> None:
-            try:
-                metadata = {k: v.value for k, v in (await self._player.get_metadata()).items()}
-                status = await self._player.get_playback_status()
-                position = await self._player.get_position()
-                can_seek = await self._player.get_can_seek()
-                self._state = metadata_to_state(metadata, status, position, can_seek)
-            except Exception:  # noqa: BLE001
-                _log.debug("не удалось прочитать состояние плеера", exc_info=True)
-                self._state = None
-            self._publish()
-
-        def on_properties_changed(interface, changed, invalidated) -> None:  # noqa: ARG001
+        def on_properties_changed(interface, changed, invalidated) -> None:
             if not self._stopping:
-                asyncio.create_task(refresh())  # noqa: RUF006
+                asyncio.create_task(self._refresh())
 
         properties.on_properties_changed(on_properties_changed)
-        await refresh()
+        await self._refresh()
+
+    async def _refresh(self) -> None:
+        player = self._player
+        if player is None:
+            self._state = None
+            self._publish()
+            return
+        try:
+            metadata = {k: v.value for k, v in (await player.get_metadata()).items()}
+            status = await player.get_playback_status()
+            position = await player.get_position()
+            can_seek = await player.get_can_seek()
+            self._state = metadata_to_state(metadata, status, position, can_seek)
+        except Exception:
+            _log.debug("не удалось прочитать состояние плеера", exc_info=True)
+            self._state = None
+        self._publish()
 
     @staticmethod
     def is_available() -> bool:

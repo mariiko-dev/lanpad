@@ -16,15 +16,13 @@ MAX_MOVE = 4000
 MAX_WHEEL = 200
 MAX_TEXT = 10_000
 MAX_COMBO_KEYS = 6
+MAX_EVENTS = 512
 MEDIA_ACTIONS = frozenset({"play", "next", "prev"})
 
 
 def _reject_constant(name: str) -> float:
-    """JSON допускает NaN и Infinity — для нас это негодные числа.
-
-    Преобразуем их в float, _bounded_int их отсеет при проверке конечности.
-    """
-    return float(name)
+    """JSON допускает NaN и Infinity — для нас это негодные числа."""
+    raise ValueError(f"недопустимая константа: {name}")
 
 
 @dataclass(frozen=True)
@@ -128,7 +126,7 @@ def _key_name(value: object) -> str | None:
     return value
 
 
-def _parse_one(item: object) -> Event | None:  # noqa: PLR0911, PLR0912
+def _parse_one(item: object) -> Event | None:
     if not isinstance(item, list) or not item:
         return None
     kind = item[0]
@@ -191,6 +189,8 @@ def parse_events(raw: bytes | str) -> list[Event]:
     except (ValueError, TypeError):
         return []
     if not isinstance(payload, list):
+        return []
+    if len(payload) > MAX_EVENTS:
         return []
 
     events: list[Event] = []

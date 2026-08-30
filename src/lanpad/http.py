@@ -4,6 +4,7 @@ import ipaddress
 import json
 import mimetypes
 import os
+import re
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 from urllib.parse import parse_qs, unquote, urlparse, urlsplit
@@ -93,10 +94,19 @@ def safe_static_path(web_root: Path, relative: str) -> Path | None:
         return None
 
 
+_HASHED_NAME = re.compile(r"-[0-9a-f]{6,}\.[a-z0-9]+$")
+
+
 def cache_header_for(path: str) -> str:
+    """Заголовок кэширования.
+
+    Вечное кэширование выдаётся только именам с хешем содержимого:
+    иначе обновление агента не дойдёт до уже спаренного телефона
+    никогда, потому что `immutable` запрещает браузеру перепроверять.
+    """
     extension = os.path.splitext(path)[1].lower()
     if extension in IMMUTABLE_EXTENSIONS and path.startswith("/assets/"):
-        return IMMUTABLE_HEADER
+        return IMMUTABLE_HEADER if _HASHED_NAME.search(path) else "no-cache"
     return NO_CACHE_HEADER
 
 
@@ -108,6 +118,16 @@ def make_handler(session: Session, token: str, web_root: Path):
         timeout = 30
 
         # --- вспомогательное ---------------------------------------------
+
+        def send_response(self, code, message=None):
+            """Ставить защитные заголовки и на ответах об ошибке.
+
+            Иначе отказ на пути с токеном отдаётся без Referrer-Policy,
+            а токен у браузера в адресной строке.
+            """
+            super().send_response(code, message)
+            self.send_header("Referrer-Policy", "no-referrer")
+            self.send_header("X-Content-Type-Options", "nosniff")
 
         def _query(self) -> dict:
             return parse_qs(urlparse(self.path).query)
@@ -129,8 +149,6 @@ def make_handler(session: Session, token: str, web_root: Path):
             self.send_header("Cache-Control", cache)
             for key, value in (extra or {}).items():
                 self.send_header(key, value)
-            self.send_header("Referrer-Policy", "no-referrer")
-            self.send_header("X-Content-Type-Options", "nosniff")
             self.end_headers()
             if self.command != "HEAD":
                 self.wfile.write(body)
@@ -145,12 +163,17 @@ def make_handler(session: Session, token: str, web_root: Path):
                 ctype = "text/javascript"
             elif target.suffix == ".woff2":
                 ctype = "font/woff2"
+            try:
+                body = target.read_bytes()
+            except OSError:
+                self.send_error(404)
+                return
             self._respond(200, ctype or "application/octet-stream",
-                          target.read_bytes(), cache_header_for(relative))
+                          body, cache_header_for(relative))
 
         # --- маршруты -----------------------------------------------------
 
-        def do_GET(self) -> None:  # noqa: N802
+        def do_GET(self) -> None:
             if not self._client_allowed():
                 self.send_error(403)
                 return
@@ -176,11 +199,14 @@ def make_handler(session: Session, token: str, web_root: Path):
 
         do_HEAD = do_GET
 
-        def do_POST(self) -> None:  # noqa: N802
+        def do_POST(self) -> None:
             if not self._client_allowed() or urlparse(self.path).path != "/e":
                 self.send_error(404)
                 return
             if not self._authorised():
+                self.send_error(403)
+                return
+            if not origin_allowed(self.headers.get("Origin"), self.headers.get("Host", "")):
                 self.send_error(403)
                 return
             try:
@@ -220,7 +246,12 @@ def make_handler(session: Session, token: str, web_root: Path):
             if ctype is None or not ctype.startswith("image/"):
                 self.send_error(404)
                 return
-            self._respond(200, ctype, target.read_bytes(), PRIVATE_IMMUTABLE_HEADER)
+            try:
+                body = target.read_bytes()
+            except OSError:
+                self.send_error(404)
+                return
+            self._respond(200, ctype, body, PRIVATE_IMMUTABLE_HEADER)
 
         def _serve_websocket(self) -> None:
             if not self._authorised():
@@ -277,6 +308,6 @@ def make_handler(session: Session, token: str, web_root: Path):
 
 def make_server(session: Session, token: str, web_root: Path, port: int) -> ThreadingHTTPServer:
     mimetypes.init()
-    server = ThreadingHTTPServer(("0.0.0.0", port), make_handler(session, token, web_root))  # noqa: S104
+    server = ThreadingHTTPServer(("0.0.0.0", port), make_handler(session, token, web_root))
     server.daemon_threads = True
     return server

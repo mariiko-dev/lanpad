@@ -101,7 +101,7 @@ def sweep_positions(action, text_or_keys, limit: int, error: type[Exception]):
         backend = backend_with(device)
         try:  # noqa: SIM105
             action(backend, text_or_keys)
-        except Exception:  # noqa: BLE001, S110
+        except Exception:
             pass
         held = held_keys(device.events)
         if held:
@@ -140,4 +140,22 @@ def test_type_text_leaves_nothing_held_on_the_happy_path():
     device = ExplodingDevice(fail_after=1000)
     backend = backend_with(device)
     backend.type_text("aA")
+    assert held_keys(device.events) == set()
+
+
+def test_click_never_leaves_the_button_held_at_any_failure_point():
+    """Отпускание кнопки идёт через `finally`, как в combo и type_text."""
+    leaks = sweep_positions(lambda b, n: b.click(n), "l", 5, OSError)
+    assert leaks == {}
+
+
+def test_click_survives_a_non_oserror_device():
+    leaks = sweep_positions(lambda b, n: b.click(n), "l", 5, RuntimeError)
+    assert leaks == {}
+
+
+def test_click_leaves_nothing_held_on_the_happy_path():
+    device = ExplodingDevice(fail_after=1000)
+    backend = backend_with(device)
+    backend.click("l")
     assert held_keys(device.events) == set()

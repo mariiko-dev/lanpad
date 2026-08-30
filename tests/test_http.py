@@ -53,13 +53,25 @@ def test_missing_static_file_is_refused(tmp_path):
 
 @pytest.mark.parametrize("path,expected_immutable", [
     ("/assets/app-a1b2c3.js", True),
-    ("/assets/font.woff2", True),
+    ("/assets/golos-9f8e7d6c.woff2", True),
+    ("/assets/font.woff2", False),
+    ("/assets/app.js", False),
+    ("/assets/react.js", False),
     ("/index.html", False),
     ("/manifest.webmanifest", False),
 ])
 def test_cache_headers(path, expected_immutable):
     header = h.cache_header_for(path)
     assert ("immutable" in header) is expected_immutable
+
+
+def test_unhashed_asset_is_revalidated_not_immutable():
+    """Поставляемые app.js и react.js без хеша обязаны перепроверяться,
+
+    иначе обновление агента не дойдёт до уже спаренного телефона.
+    """
+    assert h.cache_header_for("/assets/app.js") == "no-cache"
+    assert "immutable" in h.cache_header_for("/assets/app-a1b2c3.js")
 
 
 def test_literal_address_host_is_accepted():

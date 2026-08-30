@@ -1,5 +1,8 @@
+import asyncio
+
 import pytest
 
+from lanpad.platform.linux import media_mpris as mm
 from lanpad.platform.linux.media_mpris import (
     MprisMedia,
     art_id_for,
@@ -147,3 +150,48 @@ def test_broken_subscriber_does_not_propagate():
     backend = media_without_thread()
     backend.subscribe(lambda _s: (_ for _ in ()).throw(RuntimeError("сломался")))
     backend._publish()
+
+
+def test_departing_player_resets_state_and_notifies():
+    """Служба стартует раньше плееров: уход текущего обязан обнулить состояние.
+
+    Без D-Bus: `_bus` — None, поэтому `_attach_any` сразу возвращается.
+    """
+    backend = media_without_thread()
+    backend._stopping = False
+    backend._bus = None
+    backend._player = object()
+    backend._player_name = "org.mpris.MediaPlayer2.vlc"
+    backend._state = metadata_to_state(meta(), "Playing", 0, True)
+    seen = []
+    backend.subscribe(seen.append)
+
+    asyncio.run(backend._players_changed("org.mpris.MediaPlayer2.vlc", ""))
+
+    assert backend._state is None
+    assert backend._player is None
+    assert backend._player_name is None
+    assert seen == [None]
+
+
+def test_unrelated_player_leaving_is_ignored():
+    backend = media_without_thread()
+    backend._stopping = False
+    backend._bus = None
+    backend._player = object()
+    backend._player_name = "org.mpris.MediaPlayer2.vlc"
+    backend._state = metadata_to_state(meta(), "Playing", 0, True)
+
+    asyncio.run(backend._players_changed("org.mpris.MediaPlayer2.other", ""))
+
+    assert backend._state is not None
+    assert backend._player_name == "org.mpris.MediaPlayer2.vlc"
+
+
+def test_art_paths_are_evicted_once_the_cap_is_passed():
+    mm._ART_PATHS.clear()
+    for i in range(mm.MAX_ART_ENTRIES + 5):
+        mm._remember_art(f"id{i}", f"/covers/{i}.png")
+    assert len(mm._ART_PATHS) == mm.MAX_ART_ENTRIES
+    assert "id0" not in mm._ART_PATHS
+    assert f"id{mm.MAX_ART_ENTRIES + 4}" in mm._ART_PATHS

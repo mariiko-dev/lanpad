@@ -65,7 +65,7 @@ def install() -> int:
         ["systemctl", "--user", "enable", "--now", UNIT_NAME],
     ):
         try:
-            result = subprocess.run(command, check=False)  # noqa: S603
+            result = subprocess.run(command, check=False)
         except OSError as exc:
             print(f"Не удалось выполнить {' '.join(command)}: {exc}", file=sys.stderr)
             return 1

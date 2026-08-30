@@ -239,35 +239,15 @@
   /* ---------------- volume ------------------------------------ */
   function VolumeRow(props) {
     var send = props.send;
-    var _s = useState(null), st = _s[0], setSt = _s[1];
-
-    var poll = useCallback(function () {
-      fetch("/vol?" + Q).then(function (r) { return r.ok ? r.json() : null; })
-        .then(function (j) { if (j) setSt(j); }).catch(function () {});
-    }, []);
-
-    useEffect(function () {
-      poll();
-      var i = setInterval(poll, 4000);
-      return function () { clearInterval(i); };
-    }, [poll]);
-
-    function after() { setTimeout(poll, 130); }
-    var pct = st && st.vol != null ? st.vol : null;
-    var muted = !!(st && st.muted);
 
     return html`
-      <div class=${"vol rise" + (muted ? " muted" : "")} style=${{ "--i": 4 }}>
+      <div class="vol rise" style=${{ "--i": 4 }}>
         <${HoldButton} class="vol-btn" aria-label="Без звука"
-          onFire=${function () { send(["volmute"]); after(); }}>${muted ? "🔇" : "🔊"}<//>
+          onFire=${function () { send(["volmute"]); }}>🔊<//>
         <${HoldButton} class="vol-btn" repeat aria-label="Тише"
-          onFire=${function () { send(["vol", -4]); after(); }}>−<//>
-        <div class="vol-track" role="progressbar" aria-valuenow=${pct == null ? 0 : pct}>
-          <div class="vol-fill" style=${{ width: (pct == null ? 0 : pct) + "%" }}></div>
-          <span class="vol-pct">${pct == null ? "" : pct + "%"}</span>
-        </div>
+          onFire=${function () { send(["vol", -4]); }}>−<//>
         <${HoldButton} class="vol-btn" repeat aria-label="Громче"
-          onFire=${function () { send(["vol", 4]); after(); }}>+<//>
+          onFire=${function () { send(["vol", 4]); }}>+<//>
       </div>`;
   }
 
@@ -519,10 +499,4 @@
   /* prevent pinch / double-tap zoom bleeding through */
   document.addEventListener("gesturestart", function (e) { e.preventDefault(); });
   document.addEventListener("dblclick", function (e) { e.preventDefault(); });
-
-  if ("serviceWorker" in navigator) {
-    window.addEventListener("load", function () {
-      navigator.serviceWorker.register("/sw.js").catch(function () {});
-    });
-  }
 })();
