@@ -8,6 +8,7 @@ D-Bus работает асинхронно, а сервер — потокам�
 
 import asyncio
 import hashlib
+import logging
 import threading
 from collections.abc import Callable
 from urllib.parse import unquote, urlparse
@@ -18,6 +19,8 @@ from lanpad.protocol import MediaState
 BUS_PREFIX = "org.mpris.MediaPlayer2"
 OBJECT_PATH = "/org/mpris/MediaPlayer2"
 PLAYER_INTERFACE = "org.mpris.MediaPlayer2.Player"
+
+_log = logging.getLogger(__name__)
 
 _ART_PATHS: dict[str, str] = {}
 
@@ -34,6 +37,19 @@ def _artist_of(metadata: dict) -> str:
     if isinstance(artist, list):
         return ", ".join(str(a) for a in artist)
     return ""
+
+
+def _seconds(raw: object) -> float:
+    """Микросекунды в секунды.
+
+    Плееры кладут сюда что угодно, включая строки и отрицательные числа,
+    поэтому неразбираемое значение означает ноль, а не исключение.
+    """
+    try:
+        micros = int(raw)
+    except (TypeError, ValueError, OverflowError):
+        return 0.0
+    return round(max(0, micros) / 1_000_000, 2)
 
 
 def _art_of(metadata: dict) -> str | None:
@@ -53,15 +69,19 @@ def metadata_to_state(
     position_us: int,
     can_seek: bool,
 ) -> MediaState:
-    """Превратить сырые метаданные MPRIS в состояние для телефона."""
-    length_us = metadata.get("mpris:length") or 0
+    """Превратить сырые метаданные MPRIS в состояние для телефона.
+
+    Спецификацию MPRIS плееры соблюдают нестрого, поэтому ни одно поле
+    здесь не считается доверенным: разбор обязан выдавать состояние на
+    любом входе, а не падать.
+    """
     return MediaState(
         playing=(playback_status == "Playing"),
         title=str(metadata.get("xesam:title") or ""),
         artist=_artist_of(metadata),
         art=_art_of(metadata),
-        position=round(position_us / 1_000_000, 2),
-        duration=round(int(length_us) / 1_000_000, 2),
+        position=_seconds(position_us),
+        duration=_seconds(metadata.get("mpris:length")),
         can_seek=can_seek,
     )
 
@@ -109,7 +129,10 @@ class MprisMedia(MediaBackend):
 
     def _publish(self) -> None:
         for callback in self._subscribers:
-            callback(self._state)
+            try:
+                callback(self._state)
+            except Exception:  # noqa: BLE001
+                _log.exception("подписчик медиа-состояния бросил исключение")
 
     def _call_on_player(self, method_name: str, **kwargs) -> None:
         if self._loop is None or self._player is None:
@@ -142,6 +165,7 @@ class MprisMedia(MediaBackend):
         try:
             self._loop.run_until_complete(self._connect())
         except Exception:  # noqa: BLE001 — без D-Bus просто нет медиа
+            _log.info("подключиться к MPRIS не удалось, медиа отключено", exc_info=True)
             self._ready.set()
             return
         self._ready.set()
@@ -172,10 +196,10 @@ class MprisMedia(MediaBackend):
                 status = await self._player.get_playback_status()
                 position = await self._player.get_position()
                 can_seek = await self._player.get_can_seek()
-            except Exception:  # noqa: BLE001
-                self._state = None
-            else:
                 self._state = metadata_to_state(metadata, status, position, can_seek)
+            except Exception:  # noqa: BLE001
+                _log.debug("не удалось прочитать состояние плеера", exc_info=True)
+                self._state = None
             self._publish()
 
         def on_properties_changed(interface, changed, invalidated) -> None:  # noqa: ARG001

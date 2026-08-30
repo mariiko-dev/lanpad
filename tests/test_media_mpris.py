@@ -1,4 +1,10 @@
-from lanpad.platform.linux.media_mpris import art_id_for, metadata_to_state
+import pytest
+
+from lanpad.platform.linux.media_mpris import (
+    MprisMedia,
+    art_id_for,
+    metadata_to_state,
+)
 
 
 def meta(**overrides):
@@ -83,3 +89,61 @@ def test_missing_length_gives_zero_duration():
     data = meta()
     del data["mpris:length"]
     assert metadata_to_state(data, "Playing", 0, True).duration == 0.0
+
+
+@pytest.mark.parametrize("length", [
+    "abc", "355.0", None, [], {}, object(), float("nan"), float("inf"),
+])
+def test_broken_length_never_raises(length):
+    """Плеер, нарушающий спецификацию, не должен убивать чтение состояния."""
+    state = metadata_to_state({"mpris:length": length}, "Playing", 0, True)
+    assert state.duration >= 0
+
+
+def test_negative_length_is_reported_as_zero():
+    state = metadata_to_state({"mpris:length": -5_000_000}, "Playing", 0, True)
+    assert state.duration == 0.0
+
+
+def test_broken_position_never_raises():
+    state = metadata_to_state({}, "Playing", "не число", True)
+    assert state.position == 0.0
+
+
+@pytest.mark.parametrize("metadata", [
+    {},
+    {"xesam:title": 42},
+    {"xesam:title": None},
+    {"xesam:artist": []},
+    {"xesam:artist": 7},
+    {"mpris:artUrl": ""},
+    {"mpris:artUrl": 42},
+    {"mpris:artUrl": "file://"},
+    {"xesam:title": 1, "xesam:artist": None, "mpris:length": "x", "mpris:artUrl": []},
+])
+def test_no_metadata_shape_raises(metadata):
+    """Ни одна форма метаданных не должна приводить к исключению."""
+    metadata_to_state(metadata, "Playing", 0, True)
+
+
+def media_without_thread() -> MprisMedia:
+    """Собрать бэкенд, не поднимая поток D-Bus."""
+    backend = MprisMedia.__new__(MprisMedia)
+    backend._state = None
+    backend._subscribers = []
+    return backend
+
+
+def test_one_broken_subscriber_does_not_starve_the_others():
+    backend = media_without_thread()
+    seen = []
+    backend.subscribe(lambda _s: (_ for _ in ()).throw(RuntimeError("сломался")))
+    backend.subscribe(seen.append)
+    backend._publish()
+    assert len(seen) == 1
+
+
+def test_broken_subscriber_does_not_propagate():
+    backend = media_without_thread()
+    backend.subscribe(lambda _s: (_ for _ in ()).throw(RuntimeError("сломался")))
+    backend._publish()
