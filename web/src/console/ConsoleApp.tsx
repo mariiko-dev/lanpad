@@ -42,6 +42,10 @@ export function ConsoleApp() {
     return <main className="console"><p>Connecting to the agent…</p></main>;
   }
 
+  // The buster changes with the address, not with every poll: tying it to
+  // the clock reloads the QR every two seconds and makes it flicker.
+  const qrSource = `/console/qr.png?of=${encodeURIComponent(state.url)}`;
+
   return (
     <main className="console">
       <header>
@@ -54,9 +58,10 @@ export function ConsoleApp() {
       <section className="pairing">
         {state.url ? (
           <>
-            {/* Re-fetched every poll: the address changes with the network,
-                and a stale QR is what this window exists to prevent. */}
-            <img className="qr" src={`/console/qr.png?at=${Date.now()}`} alt="Pairing QR code" />
+            {/* Re-fetched when the address changes: the address moves with
+                the network, and a stale QR is what this window exists to
+                prevent. */}
+            <img className="qr" src={qrSource} alt="Pairing QR code" />
             <code>{state.url}</code>
           </>
         ) : (

@@ -14,6 +14,10 @@ export interface ConsoleState {
   events: ConsoleEvent[];
 }
 
+function isObject(value: unknown): value is Record<string, unknown> {
+  return typeof value === "object" && value !== null && !Array.isArray(value);
+}
+
 export function parseConsoleState(raw: string): ConsoleState | null {
   let payload: unknown;
   try {
@@ -21,11 +25,23 @@ export function parseConsoleState(raw: string): ConsoleState | null {
   } catch {
     return null;
   }
-  if (typeof payload !== "object" || payload === null || Array.isArray(payload)) {
+  if (!isObject(payload)) {
     return null;
   }
   const value = payload as Partial<ConsoleState>;
-  if (typeof value.port !== "number" || !Array.isArray(value.addresses)) {
+  // Every field the page renders is checked here. A payload that passes
+  // this gate and still breaks the render would leave a white window with
+  // no way back, because a render failure is not something the polling
+  // loop can catch.
+  if (
+    typeof value.port !== "number"
+    || !Array.isArray(value.addresses)
+    || typeof value.url !== "string"
+    || typeof value.connected !== "number"
+    || !isObject(value.caps)
+    || !isObject(value.service)
+    || !Array.isArray(value.events)
+  ) {
     return null;
   }
   return value as ConsoleState;
@@ -35,5 +51,6 @@ export function formatWhen(at: number): string {
   if (!Number.isFinite(at)) {
     return "";
   }
-  return new Date(at * 1000).toLocaleTimeString();
+  const when = new Date(at * 1000);
+  return Number.isNaN(when.getTime()) ? "" : when.toLocaleTimeString();
 }
