@@ -1,3 +1,5 @@
+import { LuSettings } from "react-icons/lu";
+
 import type { Strings } from "../i18n";
 
 interface Props {
@@ -14,7 +16,7 @@ export function StatusBar({ connected, strings, onSettings, settingsOpen }: Prop
       <span aria-live="polite">{connected ? strings.connected : strings.connecting}</span>
       <span className="spacer" />
       <button type="button" className={`icon-btn${settingsOpen ? " on" : ""}`}
-              aria-label={strings.settings} onClick={onSettings}>⚙</button>
+              aria-label={strings.settings} onClick={onSettings}><LuSettings /></button>
     </div>
   );
 }

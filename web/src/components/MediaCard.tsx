@@ -1,4 +1,5 @@
 import { useEffect, useRef, useState } from "react";
+import { LuPause, LuPlay, LuSkipBack, LuSkipForward } from "react-icons/lu";
 
 import type { Strings } from "../i18n";
 import { formatTime, interpolatePosition } from "../position";
@@ -90,11 +91,13 @@ export function MediaCard({ media, send, strings, onAccent }: Props) {
 
       <div className="media-buttons">
         <button type="button" aria-label={strings.previous}
-                onClick={() => send(["media", "prev"])}>⏮</button>
-        <button type="button" aria-label={strings.play}
-                onClick={() => send(["media", "play"])}>{media.playing ? "⏸" : "▶"}</button>
+                onClick={() => send(["media", "prev"])}><LuSkipBack /></button>
+        <button type="button" className="play" aria-label={strings.play}
+                onClick={() => send(["media", "play"])}>
+          {media.playing ? <LuPause /> : <LuPlay />}
+        </button>
         <button type="button" aria-label={strings.next}
-                onClick={() => send(["media", "next"])}>⏭</button>
+                onClick={() => send(["media", "next"])}><LuSkipForward /></button>
       </div>
     </div>
   );

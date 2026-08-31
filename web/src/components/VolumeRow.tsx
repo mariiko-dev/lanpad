@@ -1,3 +1,5 @@
+import { LuVolume2, LuVolumeX } from "react-icons/lu";
+
 import type { Strings } from "../i18n";
 import type { AudioState, Event } from "../protocol";
 import { Fader } from "./Fader";
@@ -14,7 +16,7 @@ export function VolumeRow({ audio, send, strings }: Props) {
   return (
     <div className={`vol${muted ? " muted" : ""}`}>
       <HoldButton label={strings.mute} onFire={() => send(["volmute"])}>
-        {muted ? "🔇" : "🔊"}
+        {muted ? <LuVolumeX /> : <LuVolume2 />}
       </HoldButton>
       <Fader
         value={audio?.volume ?? null}

@@ -1,3 +1,9 @@
+import type { ReactNode } from "react";
+import {
+  LuChevronDown, LuChevronLeft, LuChevronRight, LuChevronUp,
+  LuCornerDownLeft, LuDelete, LuKeyboard,
+} from "react-icons/lu";
+
 import type { Strings } from "../i18n";
 import type { Event } from "../protocol";
 import { HoldButton } from "./HoldButton";
@@ -10,6 +16,7 @@ interface Props {
 
 interface Key {
   label: string;
+  icon?: ReactNode;
   tap?: string;
   combo?: string[];
   repeat?: boolean;
@@ -18,12 +25,12 @@ interface Key {
 const KEYS: Key[] = [
   { label: "Esc", tap: "escape" },
   { label: "Tab", tap: "tab" },
-  { label: "↵", tap: "enter" },
-  { label: "⌫", tap: "backspace" },
-  { label: "↑", tap: "up", repeat: true },
-  { label: "↓", tap: "down", repeat: true },
-  { label: "←", tap: "left", repeat: true },
-  { label: "→", tap: "right", repeat: true },
+  { label: "↵", icon: <LuCornerDownLeft />, tap: "enter" },
+  { label: "⌫", icon: <LuDelete />, tap: "backspace" },
+  { label: "↑", icon: <LuChevronUp />, tap: "up", repeat: true },
+  { label: "↓", icon: <LuChevronDown />, tap: "down", repeat: true },
+  { label: "←", icon: <LuChevronLeft />, tap: "left", repeat: true },
+  { label: "→", icon: <LuChevronRight />, tap: "right", repeat: true },
   { label: "⌘", tap: "super" },
   { label: "Alt+Tab", combo: ["alt", "tab"] },
   { label: "Ctrl+C", combo: ["ctrl", "c"] },
@@ -40,11 +47,11 @@ export function QuickKeys({ send, strings, onKeyboard }: Props) {
           repeat={key.repeat}
           onFire={() => send(key.combo ? ["combo", key.combo] : ["tap", key.tap ?? ""])}
         >
-          {key.label}
+          {key.icon ?? key.label}
         </HoldButton>
       ))}
       <button type="button" className="kbkey" aria-label={strings.keyboard}
-              onClick={onKeyboard}>⌨</button>
+              onClick={onKeyboard}><LuKeyboard /></button>
     </div>
   );
 }
