@@ -314,3 +314,66 @@ def test_attach_survives_a_player_without_the_seeked_signal():
 
     asyncio.run(scenario())
     assert backend._player is player
+
+
+def test_position_poll_republishes_while_playing(monkeypatch):
+    """Пока трек играет, истинная позиция обязана выверяться без событий плеера."""
+    monkeypatch.setattr(mm, "POSITION_POLL_SECONDS", 0.01)
+    player = FakePlayer()
+    player.position_us = 10_000_000
+    backend = attached_backend(player)
+    seen = []
+    backend.subscribe(seen.append)
+
+    async def scenario():
+        await backend._attach("org.mpris.MediaPlayer2.vlc")
+        seen.clear()
+        task = asyncio.create_task(backend._poll_position())
+        await asyncio.sleep(0.05)
+        player.position_us = 90_000_000
+        await asyncio.sleep(0.05)
+        backend._stopping = True
+        await asyncio.sleep(0.03)
+        assert task.done()
+
+    asyncio.run(scenario())
+    assert len(seen) >= 2
+    assert seen[-1].position == 90.0
+
+
+def test_position_poll_is_quiet_without_a_player(monkeypatch):
+    monkeypatch.setattr(mm, "POSITION_POLL_SECONDS", 0.01)
+    backend = media_without_thread()
+    backend._stopping = False
+    backend._player = None
+    backend._state = None
+
+    async def scenario():
+        task = asyncio.create_task(backend._poll_position())
+        await asyncio.sleep(0.05)
+        assert not task.done()
+        backend._stopping = True
+        await asyncio.sleep(0.03)
+        assert task.done()
+
+    asyncio.run(scenario())
+
+
+def test_position_poll_does_not_touch_a_paused_player(monkeypatch):
+    monkeypatch.setattr(mm, "POSITION_POLL_SECONDS", 0.01)
+    player = FakePlayer()
+    player.status = "Paused"
+    backend = attached_backend(player)
+    seen = []
+
+    async def scenario():
+        await backend._attach("org.mpris.MediaPlayer2.vlc")
+        backend.subscribe(seen.append)
+        task = asyncio.create_task(backend._poll_position())
+        await asyncio.sleep(0.05)
+        backend._stopping = True
+        await asyncio.sleep(0.03)
+        assert task.done()
+
+    asyncio.run(scenario())
+    assert seen == []

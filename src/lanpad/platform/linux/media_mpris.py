@@ -23,6 +23,12 @@ PLAYER_INTERFACE = "org.mpris.MediaPlayer2.Player"
 
 _log = logging.getLogger(__name__)
 
+# Position stays out of PropertiesChanged and Seeked only fires on a jump,
+# so nothing announces the steady advance of playback — nor a buffer stall
+# or a changed rate that quietly makes the phone's own clock wrong. A slow
+# poll keeps the shown position honest without a packet every second.
+POSITION_POLL_SECONDS = 2.0
+
 _ART_PATHS: OrderedDict[str, str] = OrderedDict()
 MAX_ART_ENTRIES = 32
 
@@ -112,6 +118,7 @@ class MprisMedia(MediaBackend):
         self._player_name: str | None = None
         self._ready = threading.Event()
         self._stopping = False
+        self._poll_task: asyncio.Task | None = None
         self._thread = threading.Thread(target=self._run_loop, daemon=True, name="lanpad-mpris")
         self._thread.start()
         self._ready.wait(timeout=5)
@@ -138,8 +145,20 @@ class MprisMedia(MediaBackend):
 
     def close(self) -> None:
         self._stopping = True
-        if self._loop is not None:
-            self._loop.call_soon_threadsafe(self._loop.stop)
+        loop = self._loop
+        if loop is None:
+            return
+        task = self._poll_task
+        if task is not None:
+            # Cancel and wait: letting the loop stop with the poll still
+            # pending logs it as an orphaned task on shutdown.
+            done = threading.Event()
+            def _cancel() -> None:
+                task.cancel()
+                task.add_done_callback(lambda _t: done.set())
+            loop.call_soon_threadsafe(_cancel)
+            done.wait(timeout=2)
+        loop.call_soon_threadsafe(loop.stop)
 
     # --- внутреннее -------------------------------------------------------
 
@@ -192,6 +211,7 @@ class MprisMedia(MediaBackend):
         from dbus_next.aio import MessageBus
 
         self._bus = await MessageBus(bus_type=BusType.SESSION).connect()
+        self._poll_task = asyncio.create_task(self._poll_position())
         introspection = await self._bus.introspect(
             "org.freedesktop.DBus", "/org/freedesktop/DBus"
         )
@@ -289,6 +309,22 @@ class MprisMedia(MediaBackend):
             _log.debug("плеер %s не отдаёт сигнал Seeked", player_name)
 
         await self._refresh()
+
+    async def _poll_position(self) -> None:
+        """Re-read the true position while a track is playing.
+
+        The phone shows `position + elapsed`, assuming playback runs at 1x
+        with no gaps. Buffering, a changed rate or any hiccup breaks that
+        assumption and the error only grows until the track changes, so the
+        position has to be checked against the player from time to time.
+        """
+        while not self._stopping:
+            await asyncio.sleep(POSITION_POLL_SECONDS)
+            if self._stopping or self._player is None:
+                continue
+            state = self._state
+            if state is not None and state.playing:
+                await self._refresh()
 
     async def _refresh(self) -> None:
         player = self._player
