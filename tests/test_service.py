@@ -84,6 +84,7 @@ def test_vanished_systemctl_does_not_crash(monkeypatch, tmp_path):
 
 def test_successful_install_reports_success(monkeypatch, tmp_path, capsys):
     monkeypatch.setenv("XDG_CONFIG_HOME", str(tmp_path))
+    monkeypatch.setenv("XDG_DATA_HOME", str(tmp_path))
     monkeypatch.setattr(service.shutil, "which", lambda _name: "/usr/bin/x")
     monkeypatch.setattr(
         service.subprocess, "run",

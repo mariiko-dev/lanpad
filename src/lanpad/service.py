@@ -75,6 +75,14 @@ def install() -> int:
 
     print("Служба включена и запущена.")
     print(f"QR для телефона: journalctl --user -u {UNIT_NAME} -n 40")
+
+    from lanpad import config, desktop
+
+    ok, message = desktop.install(config.port())
+    if ok:
+        print(f"Launcher entry written: {message}")
+    else:
+        print(f"Launcher entry skipped: {message}")
     return 0
 
 
