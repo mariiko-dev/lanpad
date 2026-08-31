@@ -1,6 +1,13 @@
 import { describe, expect, it } from "vitest";
 
-import { FaderLock, LOCK_AFTER_RELEASE_MS, shouldSend, valueFromPosition } from "./fader";
+import {
+  FaderLock,
+  LOCK_AFTER_RELEASE_MS,
+  SETTLE_TIMEOUT_MS,
+  SETTLE_TOLERANCE,
+  shouldSend,
+  valueFromPosition,
+} from "./fader";
 
 const box = { left: 100, width: 200 };
 
@@ -91,5 +98,58 @@ describe("shouldSend", () => {
 
   it("still sends on release even a lone tap", () => {
     expect(stream(true, [42])).toEqual([42]);
+  });
+});
+
+describe("FaderLock.commit", () => {
+  it("holds the knob until an incoming value lands near the one we asked for", () => {
+    const lock = new FaderLock();
+    lock.grab();
+    lock.commit(1000, 120, SETTLE_TOLERANCE);
+    // The old position keeps arriving while the player hunts for a keyframe.
+    expect(lock.accepts(1200, 40)).toBe(false);
+    expect(lock.accepts(1500, 30)).toBe(false);
+    // Our seek arrives.
+    expect(lock.accepts(1800, 120.8)).toBe(true);
+  });
+
+  it("keeps holding while the finger is back on the knob", () => {
+    const lock = new FaderLock();
+    lock.commit(1000, 120, SETTLE_TOLERANCE);
+    lock.grab();
+    expect(lock.accepts(1200, 120)).toBe(false);
+  });
+
+  it("does not accept a value outside the tolerance", () => {
+    const lock = new FaderLock();
+    lock.commit(1000, 120, SETTLE_TOLERANCE);
+    expect(lock.accepts(1100, 120 + SETTLE_TOLERANCE + 0.5)).toBe(false);
+  });
+
+  it("does not accept while awaiting if no incoming value is offered", () => {
+    const lock = new FaderLock();
+    lock.commit(1000, 120, SETTLE_TOLERANCE);
+    expect(lock.accepts(1100)).toBe(false);
+  });
+
+  it("gives up waiting once the ceiling passes, so a player that never seeks cannot freeze the knob", () => {
+    const lock = new FaderLock();
+    lock.commit(1000, 120, SETTLE_TOLERANCE);
+    expect(lock.accepts(1000 + SETTLE_TIMEOUT_MS + 1)).toBe(true);
+  });
+
+  it("stops awaiting once the value arrives, so later state flows again", () => {
+    const lock = new FaderLock();
+    lock.commit(1000, 120, SETTLE_TOLERANCE);
+    expect(lock.accepts(1200, 120)).toBe(true);
+    expect(lock.accepts(1000 + LOCK_AFTER_RELEASE_MS + 1, 55)).toBe(true);
+  });
+
+  it("leaves the plain release path unchanged for the volume fader", () => {
+    const lock = new FaderLock();
+    lock.grab();
+    lock.release(1000);
+    expect(lock.accepts(1000 + LOCK_AFTER_RELEASE_MS - 50, 40)).toBe(false);
+    expect(lock.accepts(1000 + LOCK_AFTER_RELEASE_MS + 1, 40)).toBe(true);
   });
 });

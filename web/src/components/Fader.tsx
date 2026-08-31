@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState } from "react";
 
-import { FaderLock, shouldSend, valueFromPosition } from "../fader";
+import { FaderLock, SETTLE_TOLERANCE, shouldSend, valueFromPosition } from "../fader";
 
 interface Props {
   value: number | null;
@@ -42,7 +42,7 @@ export function Fader({
   const [local, setLocal] = useState<number | null>(value);
 
   useEffect(() => {
-    if (lockRef.current.accepts(performance.now())) {
+    if (lockRef.current.accepts(performance.now(), value ?? undefined)) {
       setLocal(value);
     }
   }, [value]);
@@ -82,7 +82,16 @@ export function Fader({
     // return here would leave the lock held and the knob would never
     // accept incoming state again.
     const wasHeld = lockRef.current.accepts(performance.now()) === false;
-    lockRef.current.release(performance.now());
+    const now = performance.now();
+    const track = trackRef.current;
+    if (commitOnly && track) {
+      // A seek takes time to land; hold the knob until the reported
+      // position confirms it rather than for a fixed, always-wrong delay.
+      const landed = valueFromPosition(event.clientX, track.getBoundingClientRect(), min, max);
+      lockRef.current.commit(now, landed, SETTLE_TOLERANCE);
+    } else {
+      lockRef.current.release(now);
+    }
     if (disabled || !wasHeld) {
       return;
     }

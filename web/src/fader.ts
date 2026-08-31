@@ -1,6 +1,11 @@
 export const SEND_INTERVAL_MS = 60;
 export const LOCK_AFTER_RELEASE_MS = 400;
 
+/** How close an incoming value must land to count as our seek arriving. */
+export const SETTLE_TOLERANCE = 1.5;
+/** Ceiling on waiting for confirmation, so a player that never seeks cannot freeze the knob. */
+export const SETTLE_TIMEOUT_MS = 3000;
+
 /**
  * Whether a drag sample should reach the computer right now.
  *
@@ -46,6 +51,7 @@ export function valueFromPosition(
 export class FaderLock {
   private held = false;
   private releasedAt = -Infinity;
+  private awaiting: { expected: number; tolerance: number; since: number } | null = null;
 
   grab(): void {
     this.held = true;
@@ -54,9 +60,41 @@ export class FaderLock {
   release(now: number): void {
     this.held = false;
     this.releasedAt = now;
+    this.awaiting = null;
   }
 
-  accepts(now: number): boolean {
-    return !this.held && now - this.releasedAt > LOCK_AFTER_RELEASE_MS;
+  /**
+   * Hold the knob until the computer confirms the value we asked for.
+   *
+   * A seek is not instant — the player hunts for a keyframe and refills its
+   * buffer — so a fixed delay either snaps the knob back to the old position
+   * or freezes it needlessly. Waiting for the value itself does neither.
+   */
+  commit(now: number, expected: number, tolerance: number): void {
+    this.held = false;
+    this.releasedAt = now;
+    this.awaiting = { expected, tolerance, since: now };
+  }
+
+  /** `incoming` is required only while awaiting confirmation. */
+  accepts(now: number, incoming?: number): boolean {
+    if (this.held) {
+      return false;
+    }
+    if (this.awaiting) {
+      if (now - this.awaiting.since > SETTLE_TIMEOUT_MS) {
+        this.awaiting = null;
+        return true;
+      }
+      if (incoming === undefined) {
+        return false;
+      }
+      if (Math.abs(incoming - this.awaiting.expected) <= this.awaiting.tolerance) {
+        this.awaiting = null;
+        return true;
+      }
+      return false;
+    }
+    return now - this.releasedAt > LOCK_AFTER_RELEASE_MS;
   }
 }
