@@ -1,8 +1,9 @@
-import { useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 
 import type { Strings } from "../i18n";
-import { canTypeDirectly, namedKeyFor } from "../keymap";
+import { namedKeyFor } from "../keymap";
 import type { Event } from "../protocol";
+import { flushMethod } from "../typing";
 
 interface Props {
   open: boolean;
@@ -17,6 +18,13 @@ const MODIFIERS: Modifier[] = ["ctrl", "alt", "shift", "super"];
 const MODIFIER_LABELS: Record<Modifier, string> = {
   ctrl: "Ctrl", alt: "Alt", shift: "Shift", super: "⌘",
 };
+
+// Typed characters are collected and sent as one event after a short
+// idle, or once the run gets long. Sending each character on its own
+// makes the agent run wl-copy + Ctrl+V per keystroke, which lags and
+// clobbers the user's clipboard on every letter.
+const FLUSH_IDLE_MS = 250;
+const FLUSH_AT_LENGTH = 120;
 
 /**
  * The keyboard sheet.
@@ -33,6 +41,29 @@ export function KeyboardSheet({ open, onClose, send, strings }: Props) {
   heldRef.current = held;
   const [pasteText, setPasteText] = useState("");
 
+  const bufferRef = useRef("");
+  const timerRef = useRef<number | null>(null);
+
+  const flush = useCallback((): void => {
+    if (timerRef.current !== null) {
+      window.clearTimeout(timerRef.current);
+      timerRef.current = null;
+    }
+    const text = bufferRef.current;
+    if (!text) {
+      return;
+    }
+    bufferRef.current = "";
+    send([flushMethod(text), text]);
+  }, [send]);
+
+  // Never leave a pending flush pointed at an unmounted component.
+  useEffect(() => () => {
+    if (timerRef.current !== null) {
+      window.clearTimeout(timerRef.current);
+    }
+  }, []);
+
   useEffect(() => {
     const field = inputRef.current;
     if (!field) {
@@ -46,25 +77,41 @@ export function KeyboardSheet({ open, onClose, send, strings }: Props) {
       field.setSelectionRange(field.value.length, field.value.length);
     };
 
+    const buffer = (text: string): void => {
+      bufferRef.current += text;
+      if (timerRef.current !== null) {
+        window.clearTimeout(timerRef.current);
+      }
+      if (bufferRef.current.length >= FLUSH_AT_LENGTH) {
+        flush();
+        return;
+      }
+      timerRef.current = window.setTimeout(flush, FLUSH_IDLE_MS);
+    };
+
     const onBeforeInput = (event: InputEvent): void => {
       const { inputType, data } = event;
       if (inputType === "insertText" && data) {
         const modifiers = heldRef.current;
         if (modifiers.length > 0 && data.length === 1) {
+          // A shortcut interrupts the run: send what is buffered first.
+          flush();
           send(["combo", [...modifiers, data]]);
           setHeld([]);
-        } else if (canTypeDirectly(data)) {
-          send(["type", data]);
         } else {
-          send(["paste", data]);
+          buffer(data);
         }
       } else if (inputType === "insertLineBreak" || inputType === "insertParagraph") {
+        flush();
         send(["tap", "enter"]);
       } else if (inputType === "deleteContentBackward") {
+        flush();
         send(["tap", "backspace"]);
       } else if (inputType === "deleteWordBackward") {
+        flush();
         send(["combo", ["ctrl", "backspace"]]);
       } else if (inputType === "insertFromPaste" && data) {
+        flush();
         send(["paste", data]);
       }
       event.preventDefault();
@@ -73,6 +120,7 @@ export function KeyboardSheet({ open, onClose, send, strings }: Props) {
     const onKeyDown = (event: KeyboardEvent): void => {
       const named = namedKeyFor(event.key);
       if (named) {
+        flush();
         send(["tap", named]);
         event.preventDefault();
         return;
@@ -83,6 +131,7 @@ export function KeyboardSheet({ open, onClose, send, strings }: Props) {
         if (event.altKey) modifiers.push("alt");
         if (event.metaKey) modifiers.push("super");
         if (event.shiftKey) modifiers.push("shift");
+        flush();
         send(["combo", [...modifiers, event.key.toLowerCase()]]);
         event.preventDefault();
       }
@@ -96,7 +145,7 @@ export function KeyboardSheet({ open, onClose, send, strings }: Props) {
       field.removeEventListener("keydown", onKeyDown);
       field.removeEventListener("input", pad);
     };
-  }, [send]);
+  }, [send, flush]);
 
   useEffect(() => {
     const sheet = sheetRef.current;
@@ -105,6 +154,7 @@ export function KeyboardSheet({ open, onClose, send, strings }: Props) {
       return undefined;
     }
     if (!open) {
+      flush();
       sheet.style.setProperty("--kb-h", "0px");
       setHeld([]);
       return undefined;
@@ -126,7 +176,7 @@ export function KeyboardSheet({ open, onClose, send, strings }: Props) {
       viewport.removeEventListener("resize", onResize);
       viewport.removeEventListener("scroll", onResize);
     };
-  }, [open]);
+  }, [open, flush]);
 
   const toggle = (modifier: Modifier): void => {
     setHeld((current) => current.includes(modifier)
