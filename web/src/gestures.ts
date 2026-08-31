@@ -11,8 +11,22 @@ const MAX_STEP = 3900; // the agent refuses anything past 4000
  * move is a lost move, not a clamped one.
  */
 export function accelerate(distance: number, factor: number): number {
-  const boosted = factor * (1 + Math.min(distance * 0.06, 4));
+  const travelled = Math.max(0, distance);
+  const boosted = factor * (1 + Math.min(travelled * 0.06, 4));
   return Math.min(boosted, MAX_STEP);
+}
+
+// The agent refuses anything past these and drops the whole event, so a
+// value clamped here is a move that lands, not a move that vanishes.
+export const MAX_MOVE = 4000;
+export const MAX_WHEEL = 200;
+
+export function clampMove(value: number): number {
+  return Math.max(-MAX_MOVE, Math.min(MAX_MOVE, Math.round(value)));
+}
+
+export function clampWheel(value: number): number {
+  return Math.max(-MAX_WHEEL, Math.min(MAX_WHEEL, Math.trunc(value)));
 }
 
 /** Turns finger travel into whole wheel notches, keeping the remainder. */

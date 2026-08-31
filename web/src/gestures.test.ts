@@ -86,3 +86,41 @@ describe("isInScrollStrip", () => {
     expect(isInScrollStrip(105, { left: 100, width: 400 })).toBe(false);
   });
 });
+
+import { MAX_MOVE, MAX_WHEEL, clampMove, clampWheel } from "./gestures";
+
+describe("clampMove", () => {
+  it("keeps ordinary movement untouched", () => {
+    expect(clampMove(12.4)).toBe(12);
+    expect(clampMove(-7.6)).toBe(-8);
+  });
+
+  it("holds a flick inside what the agent accepts", () => {
+    // Past this the agent drops the event outright, so the cursor stops
+    // exactly when the user moved fastest.
+    expect(clampMove(9999)).toBe(MAX_MOVE);
+    expect(clampMove(-9999)).toBe(-MAX_MOVE);
+  });
+
+  it("never returns a fraction", () => {
+    expect(Number.isInteger(clampMove(3.7))).toBe(true);
+  });
+});
+
+describe("clampWheel", () => {
+  it("keeps ordinary scrolling untouched", () => {
+    expect(clampWheel(3)).toBe(3);
+    expect(clampWheel(-3)).toBe(-3);
+  });
+
+  it("holds a huge sweep inside what the agent accepts", () => {
+    expect(clampWheel(9999)).toBe(MAX_WHEEL);
+    expect(clampWheel(-9999)).toBe(-MAX_WHEEL);
+  });
+});
+
+describe("accelerate", () => {
+  it("never inverts direction on a negative distance", () => {
+    expect(accelerate(-100, 1)).toBeGreaterThanOrEqual(0);
+  });
+});

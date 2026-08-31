@@ -1,6 +1,6 @@
 import { useEffect, useRef } from "react";
 
-import { ScrollAccumulator, accelerate, isInScrollStrip, isTap } from "../gestures";
+import { ScrollAccumulator, accelerate, clampMove, clampWheel, isInScrollStrip, isTap } from "../gestures";
 import type { Event } from "../protocol";
 import type { Settings } from "../settings";
 
@@ -96,7 +96,7 @@ export function Trackpad({ send, settings, hint }: Props) {
         if (scrollingByEdge) {
           const notches = scroll.add(dy, settingsRef.current.naturalScrolling);
           if (notches !== 0) {
-            send(["w", notches]);
+            send(["w", clampWheel(notches)]);
           }
           return;
         }
@@ -106,7 +106,7 @@ export function Trackpad({ send, settings, hint }: Props) {
           dragging = true;
         }
         const factor = accelerate(Math.hypot(dx, dy), settingsRef.current.sensitivity);
-        send(["m", Math.round(dx * factor), Math.round(dy * factor)]);
+        send(["m", clampMove(dx * factor), clampMove(dy * factor)]);
         return;
       }
 
@@ -127,7 +127,7 @@ export function Trackpad({ send, settings, hint }: Props) {
           travelled += Math.abs(sum);
           const notches = scroll.add(sum / counted, settingsRef.current.naturalScrolling);
           if (notches !== 0) {
-            send(["w", notches]);
+            send(["w", clampWheel(notches)]);
           }
         }
       }
@@ -179,6 +179,11 @@ export function Trackpad({ send, settings, hint }: Props) {
     pad.addEventListener("touchend", onEnd, { passive: false });
     pad.addEventListener("touchcancel", onEnd, { passive: false });
     return () => {
+      // The press has already gone out; without this its release never
+      // does, and the button stays physically held on the computer.
+      if (dragging) {
+        send(["bu", "l"]);
+      }
       pad.removeEventListener("touchstart", onStart);
       pad.removeEventListener("touchmove", onMove);
       pad.removeEventListener("touchend", onEnd);
