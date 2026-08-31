@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 
-import { FaderLock, LOCK_AFTER_RELEASE_MS, valueFromPosition } from "./fader";
+import { FaderLock, LOCK_AFTER_RELEASE_MS, shouldSend, valueFromPosition } from "./fader";
 
 const box = { left: 100, width: 200 };
 
@@ -61,5 +61,35 @@ describe("FaderLock", () => {
     const lock = new FaderLock();
     lock.release(1000);
     expect(lock.accepts(1000 + LOCK_AFTER_RELEASE_MS + 1)).toBe(true);
+  });
+});
+
+describe("shouldSend", () => {
+  const stream = (commitOnly: boolean, points: number[]): number[] => {
+    const sent: number[] = [];
+    let lastSentAt = -Infinity;
+    points.forEach((value, i) => {
+      const release = i === points.length - 1;
+      const now = i * 20; // faster than SEND_INTERVAL_MS between samples
+      if (shouldSend(commitOnly, release, now, lastSentAt)) {
+        lastSentAt = now;
+        sent.push(value);
+      }
+    });
+    return sent;
+  };
+
+  it("streams a volume drag along the way", () => {
+    const sent = stream(false, [10, 20, 30, 40, 50, 60, 70, 80]);
+    expect(sent.length).toBeGreaterThan(1);
+    expect(sent.at(-1)).toBe(80);
+  });
+
+  it("sends a seek once, where the finger lands", () => {
+    expect(stream(true, [10, 20, 30, 40])).toEqual([40]);
+  });
+
+  it("still sends on release even a lone tap", () => {
+    expect(stream(true, [42])).toEqual([42]);
   });
 });

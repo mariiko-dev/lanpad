@@ -1,6 +1,27 @@
 export const SEND_INTERVAL_MS = 60;
 export const LOCK_AFTER_RELEASE_MS = 400;
 
+/**
+ * Whether a drag sample should reach the computer right now.
+ *
+ * Volume must follow the finger, so a normal drag streams on a timer. A
+ * seek must not: every request makes the player jump and refill its
+ * buffer, so a drag's worth of them fights the finger and stutters the
+ * picture. With `commitOnly` only the release — where the finger lands —
+ * is sent.
+ */
+export function shouldSend(
+  commitOnly: boolean,
+  release: boolean,
+  now: number,
+  lastSentAt: number,
+): boolean {
+  if (commitOnly) {
+    return release;
+  }
+  return release || now - lastSentAt >= SEND_INTERVAL_MS;
+}
+
 /** Where along the track the finger is, in the fader's own units. */
 export function valueFromPosition(
   clientX: number,

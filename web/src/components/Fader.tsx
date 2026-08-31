@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState } from "react";
 
-import { FaderLock, SEND_INTERVAL_MS, valueFromPosition } from "../fader";
+import { FaderLock, shouldSend, valueFromPosition } from "../fader";
 
 interface Props {
   value: number | null;
@@ -10,6 +10,14 @@ interface Props {
   label: string;
   onChange: (value: number) => void;
   format?: (value: number) => string;
+  /**
+   * Send only where the finger lands, not along the way.
+   *
+   * Volume must follow the finger. A seek must not: every request makes the
+   * player jump and refill its buffer, so a drag's worth of them fights the
+   * finger and stutters the picture.
+   */
+  commitOnly?: boolean;
 }
 
 /**
@@ -18,7 +26,16 @@ interface Props {
  * Used for both volume and track position; the only difference is the
  * range and what the caller does with the value.
  */
-export function Fader({ value, min, max, disabled, label, onChange, format }: Props) {
+export function Fader({
+  value,
+  min,
+  max,
+  disabled,
+  label,
+  onChange,
+  format,
+  commitOnly,
+}: Props) {
   const trackRef = useRef<HTMLDivElement>(null);
   const lockRef = useRef(new FaderLock());
   const lastSentAt = useRef(0);
@@ -38,7 +55,7 @@ export function Fader({ value, min, max, disabled, label, onChange, format }: Pr
     const next = valueFromPosition(clientX, track.getBoundingClientRect(), min, max);
     setLocal(next);
     const now = performance.now();
-    if (force || now - lastSentAt.current >= SEND_INTERVAL_MS) {
+    if (shouldSend(commitOnly ?? false, force, now, lastSentAt.current)) {
       lastSentAt.current = now;
       onChange(next);
     }

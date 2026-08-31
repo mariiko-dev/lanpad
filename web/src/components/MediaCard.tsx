@@ -83,6 +83,7 @@ export function MediaCard({ media, send, strings, onAccent }: Props) {
         disabled={!media.canSeek || media.duration <= 0}
         label={strings.play}
         onChange={(value) => send(["seek", Math.round(value)])}
+        commitOnly
       />
       <div className="media-times">
         <span>{formatTime(position)}</span>
