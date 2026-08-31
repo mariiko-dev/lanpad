@@ -131,12 +131,35 @@ body {
 }
 .fader-value { font-size: 11px; color: var(--muted); min-width: 2ch; text-align: right; }
 
+.quickkeys { display: flex; flex-direction: column; gap: 6px; }
 .keys { display: grid; grid-template-columns: repeat(6, 1fr); gap: 6px; background: none; border: 0; }
 .keys button {
   border-radius: 11px; padding: 9px 0; color: #c7c7cc; font-size: 11px;
   display: grid; place-items: center;
 }
 .keys button svg { width: 16px; height: 16px; }
+.keys .keys-more { color: var(--muted); }
+
+/* Opens upward, in flow above the button row: the trackpad above it
+   shrinks, nothing is covered, and the finger stays where it tapped. */
+.keys-drawer {
+  display: flex; flex-direction: column; gap: 10px;
+  padding: 12px; border-radius: 15px;
+  background: color-mix(in srgb, var(--accent) calc(var(--panel-tint) * 100%), var(--panel));
+  border: 0.5px solid var(--border);
+}
+.keys-group { display: flex; flex-direction: column; gap: 6px; }
+.keys-group-label {
+  font-size: 10.5px; color: var(--muted);
+  text-transform: uppercase; letter-spacing: 0.04em;
+}
+.keys-group-row { display: grid; grid-template-columns: repeat(4, 1fr); gap: 6px; }
+.keys-group-row button {
+  border-radius: 11px; padding: 9px 0; font-size: 11px; color: #c7c7cc;
+  display: grid; place-items: center;
+  background: var(--panel); border: 0.5px solid var(--border);
+}
+.keys-group-row button svg { width: 16px; height: 16px; }
 .vol button { display: grid; place-items: center; }
 .vol button svg { width: 20px; height: 20px; }
 
