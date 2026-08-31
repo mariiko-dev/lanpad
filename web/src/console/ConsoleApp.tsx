@@ -88,6 +88,25 @@ export function ConsoleApp() {
         Clipboard {state.caps.clipboard ? "yes" : "no"}
       </section>
 
+      <section className="settings">
+        <h2>Settings</h2>
+        <p className="warning">
+          Reissuing the token unpairs every phone. They will need to scan the new
+          code, and the change takes effect after the service restarts.
+        </p>
+        <button
+          type="button"
+          disabled={busy}
+          onClick={() => {
+            if (window.confirm("Unpair every phone and issue a new token?")) {
+              void fetch("/console/token", { method: "POST" }).finally(() => void refresh());
+            }
+          }}
+        >
+          Reissue token
+        </button>
+      </section>
+
       <section className="log">
         <h2>Recent events</h2>
         <ul>

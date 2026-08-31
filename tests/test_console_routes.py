@@ -231,3 +231,29 @@ def test_unknown_action_never_reaches_the_system(handler_post_from_loopback, mon
         headers={"Host": "127.0.0.1:8477"},
     )
     assert calls == []
+
+
+def test_token_reissue_refuses_a_client_from_the_network(handler_post_from_network):
+    """Anyone on the Wi-Fi could otherwise unpair every phone."""
+    assert handler_post_from_network("/console/token", b"{}") == 403
+
+
+def test_token_reissue_refuses_a_foreign_origin(handler_post_from_loopback):
+    """Any open tab could otherwise unpair every phone."""
+    code = handler_post_from_loopback(
+        "/console/token", b"{}",
+        headers={"Origin": "http://evil.example", "Host": "127.0.0.1:8477"},
+    )
+    assert code == 403
+
+
+def test_token_reissue_accepts_its_own_origin(handler_post_from_loopback, monkeypatch):
+    """The window's own POST replaces the token and logs why it matters."""
+    calls: list[object] = []
+    monkeypatch.setattr(h.config, "reissue_token", lambda: calls.append(True) or "new")
+    code = handler_post_from_loopback(
+        "/console/token", b"{}",
+        headers={"Origin": "http://127.0.0.1:8477", "Host": "127.0.0.1:8477"},
+    )
+    assert code == 200
+    assert calls == [True]

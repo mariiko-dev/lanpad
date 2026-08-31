@@ -155,3 +155,23 @@ def test_mapped_loopback_is_allowed():
 
 def test_mapped_lan_address_is_still_refused():
     assert config.is_loopback_client("::ffff:192.168.1.50") is False
+
+
+def test_reissue_replaces_the_token(tmp_path):
+    token_file = tmp_path / "token"
+    first = config.load_or_create_token(token_file)
+    second = config.reissue_token(token_file)
+    assert second != first
+    assert token_file.read_text().strip() == second
+
+
+def test_reissued_token_is_private(tmp_path):
+    token_file = tmp_path / "token"
+    config.load_or_create_token(token_file)
+    config.reissue_token(token_file)
+    assert token_file.stat().st_mode & 0o077 == 0
+
+
+def test_reissue_works_without_an_existing_token(tmp_path):
+    token_file = tmp_path / "token"
+    assert config.reissue_token(token_file)

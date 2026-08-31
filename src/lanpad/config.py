@@ -74,6 +74,19 @@ def load_or_create_token(path: Path | None = None) -> str:
     return token
 
 
+def reissue_token(path: Path | None = None) -> str:
+    """Replace the pairing token.
+
+    Every paired phone stops working the moment this runs — their links
+    carry the old token. The console says so before offering the button.
+    """
+    target = path or token_path()
+    token = secrets.token_urlsafe(TOKEN_BYTES)
+    target.parent.mkdir(parents=True, exist_ok=True)
+    _write_private(target, token + "\n")
+    return token
+
+
 def token_matches(candidate: str, token: str) -> bool:
     """Сравнение, не зависящее от времени выполнения.
 

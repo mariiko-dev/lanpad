@@ -10,7 +10,7 @@ from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 from urllib.parse import parse_qs, unquote, urlparse, urlsplit
 
-from lanpad import events, qr, service, ws
+from lanpad import config, events, qr, service, ws
 from lanpad.config import is_loopback_client, is_private_client, token_matches
 from lanpad.protocol import parse_events
 from lanpad.session import Session
@@ -265,6 +265,22 @@ def make_handler(session: Session, token: str, web_root: Path):
                 )
                 self._respond(200, "application/json",
                               json.dumps({"ok": ok, "message": message}), "no-store")
+                return
+
+            if urlparse(self.path).path == "/console/token":
+                if not is_loopback_client(self.client_address[0]):
+                    self.send_error(403)
+                    return
+                # A browser on this machine is a loopback client too, so a
+                # page open in any tab could otherwise unpair every phone.
+                if not origin_allowed(self.headers.get("Origin"), self.headers.get("Host", "")):
+                    self.send_error(403)
+                    return
+                config.reissue_token()
+                events.log.add(
+                    "info", "pairing token reissued, paired phones must scan again"
+                )
+                self._respond(200, "application/json", json.dumps({"ok": True}), "no-store")
                 return
 
             if not self._client_allowed() or urlparse(self.path).path != "/e":
