@@ -1,0 +1,29 @@
+:root { color-scheme: dark; }
+
+body {
+  margin: 0;
+  background: #000;
+  color: #fff;
+  font: 14px/1.5 system-ui, sans-serif;
+}
+
+.console { max-width: 560px; margin: 0 auto; padding: 24px; display: grid; gap: 20px; }
+.console header { display: flex; align-items: center; gap: 12px; }
+.console h1 { font-size: 20px; margin: 0; }
+.badge { font-size: 12px; padding: 3px 9px; border-radius: 20px; background: #1c1c1e; color: #8e8e93; }
+.badge.on { background: rgb(52 199 89 / 16%); color: #34c759; }
+
+.pairing { display: grid; justify-items: center; gap: 12px; }
+.qr { width: 220px; height: 220px; image-rendering: pixelated; background: #fff; padding: 10px; border-radius: 12px; }
+.pairing code { font-size: 12px; color: #8e8e93; word-break: break-all; }
+
+.service, .caps, .log { background: #0c0c0d; border: 0.5px solid #1c1c1e; border-radius: 14px; padding: 14px; }
+.buttons { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 10px; }
+.buttons button { border: 0; border-radius: 9px; padding: 8px 14px; background: #1c1c1e; color: #fff; }
+.buttons button:disabled { opacity: 0.5; }
+
+.log h2 { font-size: 13px; margin: 0 0 8px; color: #8e8e93; font-weight: 600; }
+.log ul { list-style: none; margin: 0; padding: 0; display: grid; gap: 5px; max-height: 220px; overflow-y: auto; }
+.log li { font-size: 12px; color: #c7c7cc; }
+.log li.error { color: #ff453a; }
+.log time { color: #636366; margin-right: 6px; }
