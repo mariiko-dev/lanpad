@@ -55,3 +55,11 @@ describe("FaderLock", () => {
     expect(new FaderLock().accepts(0)).toBe(true);
   });
 });
+
+describe("FaderLock", () => {
+  it("can always be released, even without a matching grab", () => {
+    const lock = new FaderLock();
+    lock.release(1000);
+    expect(lock.accepts(1000 + LOCK_AFTER_RELEASE_MS + 1)).toBe(true);
+  });
+});

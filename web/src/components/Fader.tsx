@@ -61,12 +61,15 @@ export function Fader({ value, min, max, disabled, label, onChange, format }: Pr
   };
 
   const onPointerUp = (event: React.PointerEvent<HTMLDivElement>): void => {
-    if (disabled) {
+    // Release first: if the fader was disabled mid-gesture, an early
+    // return here would leave the lock held and the knob would never
+    // accept incoming state again.
+    const wasHeld = lockRef.current.accepts(performance.now()) === false;
+    lockRef.current.release(performance.now());
+    if (disabled || !wasHeld) {
       return;
     }
-    // The last position must always go out, throttle or not.
     apply(event.clientX, true);
-    lockRef.current.release(performance.now());
   };
 
   const shown = local ?? min;
