@@ -1,6 +1,6 @@
 import { useEffect, useRef } from "react";
 
-import { ScrollAccumulator, accelerate, isTap } from "../gestures";
+import { ScrollAccumulator, accelerate, isInScrollStrip, isTap } from "../gestures";
 import type { Event } from "../protocol";
 import type { Settings } from "../settings";
 
@@ -43,6 +43,7 @@ export function Trackpad({ send, settings, hint }: Props) {
     let dragArmed = false;
     let dragging = false;
     let lastTapAt = 0;
+    let scrollingByEdge = false;
 
     const moveGlow = (x: number, y: number, visible: boolean): void => {
       const box = pad.getBoundingClientRect();
@@ -60,6 +61,11 @@ export function Trackpad({ send, settings, hint }: Props) {
         moveGlow(lead.clientX, lead.clientY, true);
       }
       if (points.size === 1) {
+        const lead0 = event.changedTouches[0];
+        // A touch belongs to whatever it started on. Without this the
+        // strip would hand the gesture back to the cursor on the first
+        // slanted movement, and scrolling would jerk.
+        scrollingByEdge = lead0 ? isInScrollStrip(lead0.clientX, pad.getBoundingClientRect()) : false;
         startedAt = performance.now();
         travelled = 0;
         twoFinger = false;
@@ -85,13 +91,21 @@ export function Trackpad({ send, settings, hint }: Props) {
         const dy = touch.clientY - previous.y;
         previous.x = touch.clientX;
         previous.y = touch.clientY;
-        const distance = Math.hypot(dx, dy);
-        travelled += distance;
+        travelled += Math.hypot(dx, dy);
+
+        if (scrollingByEdge) {
+          const notches = scroll.add(dy, settingsRef.current.naturalScrolling);
+          if (notches !== 0) {
+            send(["w", notches]);
+          }
+          return;
+        }
+
         if (dragArmed && !dragging) {
           send(["bd", "l"]);
           dragging = true;
         }
-        const factor = accelerate(distance, settingsRef.current.sensitivity);
+        const factor = accelerate(Math.hypot(dx, dy), settingsRef.current.sensitivity);
         send(["m", Math.round(dx * factor), Math.round(dy * factor)]);
         return;
       }
@@ -126,6 +140,17 @@ export function Trackpad({ send, settings, hint }: Props) {
         points.delete(touch.identifier);
       }
       if (points.size > 0) {
+        return;
+      }
+
+      if (scrollingByEdge) {
+        // A grab at the edge must not turn into a click somewhere.
+        scrollingByEdge = false;
+        dragArmed = false;
+        travelled = 0;
+        if (last) {
+          moveGlow(last.clientX, last.clientY, false);
+        }
         return;
       }
 
@@ -164,6 +189,7 @@ export function Trackpad({ send, settings, hint }: Props) {
   return (
     <div className="pad" ref={padRef}>
       <div className="pad-glow" ref={glowRef} />
+      <div className="pad-strip" aria-hidden="true" />
       <span className="pad-hint">{hint}</span>
     </div>
   );

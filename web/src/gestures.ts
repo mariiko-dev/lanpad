@@ -32,3 +32,17 @@ export class ScrollAccumulator {
 export function isTap(elapsedMs: number, travelled: number): boolean {
   return elapsedMs < TAP_MAX_MS && travelled < TAP_MAX_TRAVEL;
 }
+
+export const SCROLL_STRIP_MIN_PX = 28;
+const SCROLL_STRIP_SHARE = 0.1;
+
+/**
+ * Is this touch in the edge strip that scrolls with one finger?
+ *
+ * A tenth of the pad is right on a large phone and unhittable on a small
+ * one, so the strip never gets narrower than a thumb.
+ */
+export function isInScrollStrip(x: number, box: { left: number; width: number }): boolean {
+  const stripWidth = Math.max(box.width * SCROLL_STRIP_SHARE, SCROLL_STRIP_MIN_PX);
+  return x >= box.left + box.width - stripWidth;
+}

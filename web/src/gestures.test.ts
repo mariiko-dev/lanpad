@@ -58,3 +58,31 @@ describe("isTap", () => {
     expect(isTap(120, 40)).toBe(false);
   });
 });
+
+import { SCROLL_STRIP_MIN_PX, isInScrollStrip } from "./gestures";
+
+describe("isInScrollStrip", () => {
+  const wide = { left: 0, width: 400 };
+
+  it("claims touches at the right edge", () => {
+    expect(isInScrollStrip(395, wide)).toBe(true);
+  });
+
+  it("leaves the rest of the pad alone", () => {
+    expect(isInScrollStrip(200, wide)).toBe(false);
+    expect(isInScrollStrip(0, wide)).toBe(false);
+  });
+
+  it("stays wide enough to hit with a thumb on a narrow phone", () => {
+    // A tenth of a narrow pad would be a few millimetres — unhittable
+    // blind, which is exactly how this strip gets used.
+    const narrow = { left: 0, width: 200 };
+    const boundary = 200 - SCROLL_STRIP_MIN_PX + 1;
+    expect(isInScrollStrip(boundary, narrow)).toBe(true);
+  });
+
+  it("respects the element offset", () => {
+    expect(isInScrollStrip(495, { left: 100, width: 400 })).toBe(true);
+    expect(isInScrollStrip(105, { left: 100, width: 400 })).toBe(false);
+  });
+});
