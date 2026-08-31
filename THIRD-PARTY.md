@@ -1,26 +1,30 @@
-# Сторонние компоненты
+# Third-party components
 
-Проект распространяется под GPL-3.0-or-later. Вместе с ним поставляются
-файлы, права на которые принадлежат другим авторам и которые
-распространяются на своих условиях.
+lanpad is distributed under GPL-3.0-or-later. It ships files owned by other
+authors and covered by their own terms.
 
-## Библиотеки
+## Bundled into the built front end
 
-| Компонент | Файлы | Лицензия |
-|---|---|---|
-| React | `src/lanpad/web/assets/react.js`, `react-dom.js` | MIT, Meta Platforms Inc. |
-| htm | `src/lanpad/web/assets/htm.js` | Apache-2.0, Jason Miller |
+The web app and the desktop console are built from `web/` and the result is
+shipped inside the Python package. The build embeds:
 
-## Шрифты
+| Component | Licence |
+|---|---|
+| React and React DOM | MIT, Meta Platforms Inc. |
 
-| Шрифт | Файлы | Лицензия |
-|---|---|---|
-| Cormorant | `src/lanpad/web/assets/cormorant-cyr.woff2`, `cormorant-latin.woff2` | SIL Open Font License 1.1 |
-| Golos Text | `src/lanpad/web/assets/golos-cyr.woff2`, `golos-latin.woff2` | SIL Open Font License 1.1 |
+The full dependency tree used to produce the bundle is recorded in
+`web/package.json` and the lockfile beside it.
 
-Полные тексты лицензий доступны у правообладателей: Apache-2.0 —
-apache.org/licenses/LICENSE-2.0, SIL OFL 1.1 —
-openfontlicense.org, MIT — opensource.org/license/mit.
+## Python dependencies
 
-Файлы шрифтов и библиотек — временные, они уезжают вместе с прототипом
-интерфейса и будут заменены при переходе на собираемый фронтенд.
+Installed from PyPI, not vendored:
+
+| Component | Licence |
+|---|---|
+| python-evdev | Revised BSD |
+| dbus-next | MIT |
+| qrcode | BSD |
+| pypng | MIT |
+
+Licence texts are available from the respective projects: MIT —
+opensource.org/license/mit, BSD — opensource.org/license/bsd-3-clause.
