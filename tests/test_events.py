@@ -78,3 +78,39 @@ def test_a_token_in_a_query_is_stripped_without_being_guarded():
     log = EventLog()
     log.add("info", "http://192.168.1.5:8477/?t=whatever")
     assert "whatever" not in log.entries()[0]["message"]
+
+
+def test_guard_cleans_what_is_already_stored():
+    """Protection that only works if switched on first will fail."""
+    log = EventLog()
+    log.add("info", "token is yTZZry26fEos here")
+    log.guard("yTZZry26fEos")
+    assert "yTZZry26fEos" not in log.entries()[0]["message"]
+
+
+def test_guard_cleans_every_stored_entry():
+    log = EventLog()
+    for i in range(5):
+        log.add("info", f"entry {i} with yTZZry26fEos")
+    log.guard("yTZZry26fEos")
+    assert all("yTZZry26fEos" not in e["message"] for e in log.entries())
+
+
+def test_a_non_string_message_is_recorded_not_raised():
+    log = EventLog()
+    log.add("info", 12345)
+    assert log.entries()[0]["message"] == "12345"
+
+
+def test_a_huge_message_is_truncated():
+    """One multi-kilobyte line would be rendered next to the QR."""
+    log = EventLog()
+    log.add("info", "x" * 10_000)
+    assert len(log.entries()[0]["message"]) <= 501
+
+
+def test_a_returned_entry_cannot_corrupt_the_log():
+    log = EventLog()
+    log.add("info", "original")
+    log.entries()[0]["message"] = "tampered"
+    assert log.entries()[0]["message"] == "original"

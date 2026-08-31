@@ -6,6 +6,7 @@ import time
 from collections import deque
 
 DEFAULT_CAPACITY = 100
+MAX_MESSAGE = 500
 
 # Anything sitting in a `t=` parameter, whatever it is.
 _TOKEN_PARAM = re.compile(r"(?<=\bt=)[^\s&\"']+")
@@ -37,19 +38,31 @@ class EventLog:
         self._secret: str | None = None
 
     def guard(self, secret: str) -> None:
-        """Tell the log which value must never appear in it."""
+        """Tell the log which value must never appear in it.
+
+        Already-stored entries are cleaned too. Protection that depends
+        on being switched on before the first write is protection that
+        will eventually be switched on second.
+        """
         with self._lock:
             self._secret = secret
+            for entry in self._entries:
+                entry["message"] = _redact(entry["message"], secret)
 
     def add(self, kind: str, message: str) -> None:
+        text = str(message)
+        if len(text) > MAX_MESSAGE:
+            text = text[:MAX_MESSAGE] + "…"
         with self._lock:
-            entry = {"kind": kind, "message": _redact(message, self._secret),
-                     "at": time.time()}
-            self._entries.append(entry)
+            self._entries.append({
+                "kind": str(kind),
+                "message": _redact(text, self._secret),
+                "at": time.time(),
+            })
 
     def entries(self) -> list[dict]:
         with self._lock:
-            return list(reversed(self._entries))
+            return [dict(entry) for entry in reversed(self._entries)]
 
     def clear(self) -> None:
         with self._lock:
