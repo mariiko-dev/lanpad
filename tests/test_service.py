@@ -1,5 +1,7 @@
 import subprocess
 
+import pytest
+
 from lanpad import service
 
 
@@ -82,6 +84,7 @@ def test_vanished_systemctl_does_not_crash(monkeypatch, tmp_path):
 
 def test_successful_install_reports_success(monkeypatch, tmp_path, capsys):
     monkeypatch.setenv("XDG_CONFIG_HOME", str(tmp_path))
+    monkeypatch.setenv("XDG_DATA_HOME", str(tmp_path))
     monkeypatch.setattr(service.shutil, "which", lambda _name: "/usr/bin/x")
     monkeypatch.setattr(
         service.subprocess, "run",
@@ -90,3 +93,62 @@ def test_successful_install_reports_success(monkeypatch, tmp_path, capsys):
     assert service.install() == 0
     assert service.unit_path().exists()
     assert "journalctl" in capsys.readouterr().out
+
+
+def test_only_known_actions_are_accepted(monkeypatch):
+    """An action list, not a command builder: this runs systemctl."""
+    monkeypatch.setattr(service.shutil, "which", lambda _n: "/usr/bin/systemctl")
+    ok, message = service.control("rm -rf /")
+    assert ok is False
+    assert "rm" not in message
+
+
+@pytest.mark.parametrize("action", ["start", "stop", "restart", "enable", "disable"])
+def test_known_actions_call_systemctl(monkeypatch, action):
+    calls = []
+    monkeypatch.setattr(service.shutil, "which", lambda _n: "/usr/bin/systemctl")
+    monkeypatch.setattr(service.subprocess, "run",
+                        lambda command, **kw: calls.append(command)
+                        or subprocess.CompletedProcess(command, 0))
+    ok, _ = service.control(action)
+    assert ok is True
+    assert calls[0][:3] == ["systemctl", "--user", action]
+
+
+def test_control_reports_a_failure(monkeypatch):
+    monkeypatch.setattr(service.shutil, "which", lambda _n: "/usr/bin/systemctl")
+    monkeypatch.setattr(service.subprocess, "run",
+                        lambda command, **kw: subprocess.CompletedProcess(command, 1, stderr="нет"))
+    ok, _ = service.control("start")
+    assert ok is False
+
+
+def test_control_without_systemctl_explains_itself(monkeypatch):
+    monkeypatch.setattr(service.shutil, "which", lambda _n: None)
+    ok, message = service.control("start")
+    assert ok is False
+    assert "systemctl" in message
+
+
+def test_control_survives_a_vanished_systemctl(monkeypatch):
+    monkeypatch.setattr(service.shutil, "which", lambda _n: "/usr/bin/systemctl")
+
+    def vanished(*args, **kwargs):
+        raise FileNotFoundError("исчезла")
+
+    monkeypatch.setattr(service.subprocess, "run", vanished)
+    assert service.control("start")[0] is False
+
+
+def test_status_reports_both_flags(monkeypatch):
+    monkeypatch.setattr(service.shutil, "which", lambda _n: "/usr/bin/systemctl")
+    monkeypatch.setattr(
+        service.subprocess, "run",
+        lambda command, **kw: subprocess.CompletedProcess(command, 0, stdout="active\n"),
+    )
+    assert service.status() == {"active": True, "enabled": True}
+
+
+def test_status_without_systemctl_is_all_false(monkeypatch):
+    monkeypatch.setattr(service.shutil, "which", lambda _n: None)
+    assert service.status() == {"active": False, "enabled": False}

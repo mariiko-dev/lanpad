@@ -5,12 +5,13 @@ import json
 import mimetypes
 import os
 import re
+import tempfile
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 from urllib.parse import parse_qs, unquote, urlparse, urlsplit
 
-from lanpad import ws
-from lanpad.config import is_private_client, token_matches
+from lanpad import config, events, qr, service, ws
+from lanpad.config import is_loopback_client, is_private_client, token_matches
 from lanpad.protocol import parse_events
 from lanpad.session import Session
 
@@ -110,7 +111,32 @@ def cache_header_for(path: str) -> str:
     return NO_CACHE_HEADER
 
 
+def console_state(session: Session, token: str, port: int) -> dict:
+    """Everything the desktop window shows.
+
+    The pairing URL is rebuilt on every request rather than cached: the
+    machine's address changes when the network does, and a stale QR is
+    exactly the failure this window exists to prevent.
+    """
+    addresses = qr.lan_addresses()
+    caps = session.capabilities()
+    return {
+        "addresses": addresses,
+        "port": port,
+        "url": qr.connect_url(addresses[0], port, token) if addresses else "",
+        "connected": session.listener_count(),
+        "caps": {"audio": caps.audio, "media": caps.media, "clipboard": caps.clipboard},
+        "events": events.log.entries(),
+        "service": service.status(),
+    }
+
+
 def make_handler(session: Session, token: str, web_root: Path):
+    # Tell the log which value to strip before any request can write to it:
+    # the console renders the log next to the QR, and a leaked token there
+    # would defeat the barrier the whole page is built around.
+    events.log.guard(token)
+
     class Handler(BaseHTTPRequestHandler):
         protocol_version = "HTTP/1.1"
         server_version = "lanpad"
@@ -194,12 +220,69 @@ def make_handler(session: Session, token: str, web_root: Path):
                 self._serve_art()
             elif path == "/ws":
                 self._serve_websocket()
+            elif path.startswith("/console"):
+                self._serve_console(path)
             else:
                 self._serve_static(path)
 
         do_HEAD = do_GET
 
         def do_POST(self) -> None:
+            # Checked before `_client_allowed`, which admits the whole
+            # subnet: this route is the one place a web page runs a
+            # command in the system, so its barrier must be stricter,
+            # not weaker. Loopback only.
+            if urlparse(self.path).path == "/console/service":
+                if not is_loopback_client(self.client_address[0]):
+                    self.send_error(403)
+                    return
+                # The loopback barrier does not cover this: a browser on
+                # this machine is a loopback client, so any page open in
+                # it could stop the service with a plain cross-site POST.
+                if not origin_allowed(self.headers.get("Origin"), self.headers.get("Host", "")):
+                    self.send_error(403)
+                    return
+                try:
+                    length = int(self.headers.get("Content-Length", 0) or 0)
+                except (TypeError, ValueError):
+                    self.send_error(400)
+                    return
+                if not 0 <= length <= 1024:
+                    self.send_error(413)
+                    return
+                raw = self.rfile.read(length) if length else b"{}"
+                try:
+                    action = json.loads(raw).get("action", "")
+                except (ValueError, AttributeError):
+                    self.send_error(400)
+                    return
+                # An allow-list lives in `service.control`; nothing from
+                # the request reaches a command line except through it.
+                ok, message = service.control(str(action))
+                events.log.add(
+                    "info" if ok else "error",
+                    f"service {action}" + ("" if ok else f" failed: {message}"),
+                )
+                self._respond(200, "application/json",
+                              json.dumps({"ok": ok, "message": message}), "no-store")
+                return
+
+            if urlparse(self.path).path == "/console/token":
+                if not is_loopback_client(self.client_address[0]):
+                    self.send_error(403)
+                    return
+                # A browser on this machine is a loopback client too, so a
+                # page open in any tab could otherwise unpair every phone.
+                if not origin_allowed(self.headers.get("Origin"), self.headers.get("Host", "")):
+                    self.send_error(403)
+                    return
+                config.reissue_token()
+                events.log.add(
+                    "info", "pairing token reissued, paired phones must scan again"
+                )
+                self._respond(200, "application/json", json.dumps({"ok": True}), "no-store")
+                return
+
             if not self._client_allowed() or urlparse(self.path).path != "/e":
                 self.send_error(404)
                 return
@@ -221,6 +304,42 @@ def make_handler(session: Session, token: str, web_root: Path):
             session.handle(parse_events(raw))
             self.send_response(204)
             self.end_headers()
+
+        def _serve_console(self, path: str) -> None:
+            # Loopback only: this page shows the QR, and the QR carries
+            # the token. The network-wide check used elsewhere would hand
+            # the keyboard to anyone on the Wi-Fi.
+            if not is_loopback_client(self.client_address[0]):
+                self.send_error(403)
+                return
+            if path == "/console":
+                self._serve_static("/console.html")
+            elif path == "/console/state":
+                self._respond(
+                    200, "application/json",
+                    json.dumps(console_state(session, token, self.server.server_address[1]),
+                               ensure_ascii=False),
+                    "no-store",
+                )
+            elif path == "/console/qr.png":
+                self._serve_console_qr()
+            else:
+                self.send_error(404)
+
+        def _serve_console_qr(self) -> None:
+            state = console_state(session, token, self.server.server_address[1])
+            if not state["url"]:
+                self.send_error(404)
+                return
+            with tempfile.TemporaryDirectory() as folder:
+                target = Path(folder) / "qr.png"
+                try:
+                    qr.save_png(state["url"], target)
+                    body = target.read_bytes()
+                except OSError:
+                    self.send_error(500)
+                    return
+            self._respond(200, "image/png", body, "no-store")
 
         def _serve_art(self) -> None:
             if not self._authorised():
@@ -274,6 +393,7 @@ def make_handler(session: Session, token: str, web_root: Path):
             self.send_header("Connection", "Upgrade")
             self.send_header("Sec-WebSocket-Accept", ws.accept_key(key))
             self.end_headers()
+            events.log.add("info", f"phone connected from {self.client_address[0]}")
 
             connection = self.connection
             connection.settimeout(None)
@@ -299,6 +419,7 @@ def make_handler(session: Session, token: str, web_root: Path):
                 pass
             finally:
                 session.remove_listener(push)
+                events.log.add("info", f"phone disconnected from {self.client_address[0]}")
 
         def log_message(self, *args) -> None:
             """Не засорять вывод: каждое движение курсора — это запрос."""

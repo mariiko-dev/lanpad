@@ -74,6 +74,19 @@ def load_or_create_token(path: Path | None = None) -> str:
     return token
 
 
+def reissue_token(path: Path | None = None) -> str:
+    """Replace the pairing token.
+
+    Every paired phone stops working the moment this runs — their links
+    carry the old token. The console says so before offering the button.
+    """
+    target = path or token_path()
+    token = secrets.token_urlsafe(TOKEN_BYTES)
+    target.parent.mkdir(parents=True, exist_ok=True)
+    _write_private(target, token + "\n")
+    return token
+
+
 def token_matches(candidate: str, token: str) -> bool:
     """Сравнение, не зависящее от времени выполнения.
 
@@ -100,6 +113,23 @@ def is_private_client(host: str) -> bool:
     except ValueError:
         return False
     return address.is_private or address.is_loopback or address.is_link_local
+
+
+def is_loopback_client(host: str) -> bool:
+    """Only this machine.
+
+    Stricter than `is_private_client` on purpose: the console shows the
+    pairing QR, and the QR carries the token. A page reachable from the
+    whole network would hand the keyboard to anyone on the Wi-Fi.
+    """
+    if not isinstance(host, str):
+        return False
+    try:
+        address = ipaddress.ip_address(host.strip("[]"))
+    except ValueError:
+        return False
+    mapped = getattr(address, "ipv4_mapped", None)
+    return (mapped or address).is_loopback
 
 
 def port() -> int:

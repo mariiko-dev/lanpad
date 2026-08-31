@@ -123,6 +123,14 @@ class Session:
         with suppress(ValueError):
             self._listeners.remove(on_state)
 
+    def capabilities(self) -> p.Capabilities:
+        """What this machine can do, for the console."""
+        return self._backends.capabilities()
+
+    def listener_count(self) -> int:
+        """How many phones are connected right now."""
+        return len(self._listeners)
+
     def media_art_path(self, art_id: str) -> str | None:
         """Путь к файлу обложки — только из метаданных текущего трека."""
         media = self._backends.media

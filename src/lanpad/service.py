@@ -75,4 +75,55 @@ def install() -> int:
 
     print("Служба включена и запущена.")
     print(f"QR для телефона: journalctl --user -u {UNIT_NAME} -n 40")
+
+    from lanpad import config, desktop
+
+    ok, message = desktop.install(config.port())
+    if ok:
+        print(f"Launcher entry written: {message}")
+    else:
+        print(f"Launcher entry skipped: {message}")
     return 0
+
+
+# An allow-list, not a command builder: this runs systemctl, and the
+# request comes from a web page.
+ACTIONS = frozenset({"start", "stop", "restart", "enable", "disable"})
+
+
+def control(action: str) -> tuple[bool, str]:
+    """Run one known systemctl action. Returns success and a message."""
+    if not isinstance(action, str) or action not in ACTIONS:
+        return False, "unknown action"
+    if shutil.which("systemctl") is None:
+        return False, "systemctl not found — this machine has no systemd"
+    command = ["systemctl", "--user", action, UNIT_NAME]
+    try:
+        result = subprocess.run(
+            command, capture_output=True, text=True, timeout=10, check=False,
+        )
+    except (OSError, subprocess.SubprocessError) as exc:
+        return False, str(exc)
+    if result.returncode != 0:
+        return False, (result.stderr or "").strip() or f"exit {result.returncode}"
+    return True, ""
+
+
+def _query(argument: str) -> bool:
+    try:
+        result = subprocess.run(
+            ["systemctl", "--user", argument, UNIT_NAME],
+            capture_output=True, text=True, timeout=5, check=False,
+        )
+    except Exception:
+        # A status query must never take down /console/state; any failure
+        # to reach systemctl just means "not known to be active".
+        return False
+    return result.stdout.strip() in ("active", "enabled")
+
+
+def status() -> dict:
+    """Whether the service runs now and whether it starts at login."""
+    if shutil.which("systemctl") is None:
+        return {"active": False, "enabled": False}
+    return {"active": _query("is-active"), "enabled": _query("is-enabled")}
