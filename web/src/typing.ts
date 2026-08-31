@@ -1,12 +1,11 @@
-import { canTypeDirectly } from "./keymap";
-
 /**
- * How a batched run of typed text should reach the agent.
+ * How a batch of typed text reaches the computer.
  *
- * A buffer the agent's layout covers end to end is typed key by key
- * (`type`); anything with Cyrillic, emoji or other non-ASCII travels
- * once through the clipboard (`paste`).
+ * Always through the clipboard, never as key codes. A key code is turned
+ * into a letter by whatever layout is active on the *computer*, so typing
+ * "hello" on a machine set to Russian produces "руддщ". The phone cannot
+ * know the remote layout, and the clipboard carries letters as letters.
  */
-export function flushMethod(buffer: string): "type" | "paste" {
-  return canTypeDirectly(buffer) ? "type" : "paste";
+export function flushMethod(_buffer: string): "paste" {
+  return "paste";
 }

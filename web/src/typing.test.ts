@@ -8,15 +8,15 @@ describe("flushMethod", () => {
     expect(flushMethod("")).toBe("paste");
   });
 
-  it("types a Latin-only buffer", () => {
-    expect(flushMethod("hello world")).toBe("type");
+  it("pastes a Latin-only buffer", () => {
+    expect(flushMethod("hello world")).toBe("paste");
   });
 
   it("pastes a Cyrillic-only buffer", () => {
     expect(flushMethod("привет")).toBe("paste");
   });
 
-  it("pastes a mixed buffer so the order is preserved", () => {
+  it("pastes a mixed buffer", () => {
     expect(flushMethod("привет hello")).toBe("paste");
   });
 
@@ -24,7 +24,13 @@ describe("flushMethod", () => {
     expect(flushMethod("nice 🎧")).toBe("paste");
   });
 
-  it("types a very long Latin buffer", () => {
-    expect(flushMethod("a".repeat(500))).toBe("type");
+  it("pastes a very long buffer", () => {
+    expect(flushMethod("a".repeat(500))).toBe("paste");
+  });
+
+  it("never sends latin text as key codes", () => {
+    // Key codes go through the computer's layout: on a machine set to
+    // Russian, "hello" typed as key codes arrives as "руддщ".
+    expect(flushMethod("hello")).toBe("paste");
   });
 });
