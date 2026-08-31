@@ -33,11 +33,10 @@ def browser_command(port: int) -> list[str] | None:
 
 
 def entry_text(command: list[str]) -> str:
-    # No Comment= line: the token-free check in the tests forbids the
-    # substring "t=", and a .desktop file is world-readable anyway.
     return f"""[Desktop Entry]
 Type=Application
 Name=lanpad
+Comment=Pair a phone and control this computer
 Exec={" ".join(command)}
 Icon=lanpad
 Terminal=false

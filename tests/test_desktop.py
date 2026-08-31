@@ -29,10 +29,18 @@ def test_entry_is_a_valid_desktop_file():
     assert "Icon=lanpad" in text
 
 
-def test_entry_never_carries_the_token():
-    """A .desktop file is world-readable; the console needs no token."""
+def test_entry_never_carries_a_token():
+    """A .desktop file is world-readable, and the console needs no token."""
     text = desktop.entry_text(["/usr/bin/x", "--app=http://127.0.0.1:8477/console"])
-    assert "t=" not in text
+    assert "?t=" not in text
+    assert "&t=" not in text
+    assert "yTZZry26fEos" not in text
+
+
+def test_entry_describes_itself():
+    """Without a comment the launcher shows a bare name and no hint."""
+    text = desktop.entry_text(["/usr/bin/x", "--app=http://127.0.0.1:8477/console"])
+    assert "Comment=" in text
 
 
 def test_entry_path_follows_xdg(monkeypatch, tmp_path):
