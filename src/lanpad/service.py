@@ -85,7 +85,7 @@ ACTIONS = frozenset({"start", "stop", "restart", "enable", "disable"})
 
 def control(action: str) -> tuple[bool, str]:
     """Run one known systemctl action. Returns success and a message."""
-    if action not in ACTIONS:
+    if not isinstance(action, str) or action not in ACTIONS:
         return False, "unknown action"
     if shutil.which("systemctl") is None:
         return False, "systemctl not found — this machine has no systemd"
@@ -107,7 +107,9 @@ def _query(argument: str) -> bool:
             ["systemctl", "--user", argument, UNIT_NAME],
             capture_output=True, text=True, timeout=5, check=False,
         )
-    except (OSError, subprocess.SubprocessError):
+    except Exception:
+        # A status query must never take down /console/state; any failure
+        # to reach systemctl just means "not known to be active".
         return False
     return result.stdout.strip() in ("active", "enabled")
 

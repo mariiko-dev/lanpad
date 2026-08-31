@@ -236,8 +236,21 @@ def make_handler(session: Session, token: str, web_root: Path):
                 if not is_loopback_client(self.client_address[0]):
                     self.send_error(403)
                     return
-                length = int(self.headers.get("Content-Length", 0) or 0)
-                raw = self.rfile.read(min(length, 1024)) if length else b"{}"
+                # The loopback barrier does not cover this: a browser on
+                # this machine is a loopback client, so any page open in
+                # it could stop the service with a plain cross-site POST.
+                if not origin_allowed(self.headers.get("Origin"), self.headers.get("Host", "")):
+                    self.send_error(403)
+                    return
+                try:
+                    length = int(self.headers.get("Content-Length", 0) or 0)
+                except (TypeError, ValueError):
+                    self.send_error(400)
+                    return
+                if not 0 <= length <= 1024:
+                    self.send_error(413)
+                    return
+                raw = self.rfile.read(length) if length else b"{}"
                 try:
                     action = json.loads(raw).get("action", "")
                 except (ValueError, AttributeError):
