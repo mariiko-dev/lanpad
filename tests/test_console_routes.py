@@ -78,6 +78,35 @@ def handler_from_network(tmp_path):
     return run
 
 
+@pytest.fixture
+def handler_post_from_network(tmp_path):
+    """Drive a console POST route as a client from the local network."""
+
+    def run(path: str, body: bytes = b"{}") -> int:
+        handler_cls = h.make_handler(make_session(), TOKEN, Path(tmp_path))
+        handler = handler_cls.__new__(handler_cls)
+        handler.command = "POST"
+        handler.path = path
+        handler.client_address = (NETWORK_CLIENT, 44444)
+        handler.request_version = "HTTP/1.1"
+        handler.headers = email.message.Message()
+        handler.headers["Content-Length"] = str(len(body))
+        handler.rfile = io.BytesIO(body)
+        handler.wfile = io.BytesIO()
+
+        rec = _Recorder()
+        handler.send_response = rec.send_response
+        handler.send_header = rec.send_header
+        handler.end_headers = rec.end_headers
+        handler.send_error = rec.send_error
+        handler.log_message = rec.log_message
+
+        handler.do_POST()
+        return rec.code
+
+    return run
+
+
 def test_state_carries_everything_the_window_shows():
     state = h.console_state(make_session(), TOKEN, 8477)
     assert isinstance(state["addresses"], list)
@@ -110,3 +139,8 @@ def test_console_state_refuses_a_client_from_the_network(handler_from_network):
 
 def test_console_qr_refuses_a_client_from_the_network(handler_from_network):
     assert handler_from_network("/console/qr.png") == 403
+
+
+def test_service_control_refuses_a_client_from_the_network(handler_post_from_network):
+    """A web page from the Wi-Fi must not be able to stop the agent."""
+    assert handler_post_from_network("/console/service", b'{"action":"stop"}') == 403

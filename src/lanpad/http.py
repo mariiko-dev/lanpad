@@ -10,7 +10,7 @@ from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 from urllib.parse import parse_qs, unquote, urlparse, urlsplit
 
-from lanpad import events, qr, ws
+from lanpad import events, qr, service, ws
 from lanpad.config import is_loopback_client, is_private_client, token_matches
 from lanpad.protocol import parse_events
 from lanpad.session import Session
@@ -127,6 +127,7 @@ def console_state(session: Session, token: str, port: int) -> dict:
         "connected": session.listener_count(),
         "caps": {"audio": caps.audio, "media": caps.media, "clipboard": caps.clipboard},
         "events": events.log.entries(),
+        "service": service.status(),
     }
 
 
@@ -227,6 +228,32 @@ def make_handler(session: Session, token: str, web_root: Path):
         do_HEAD = do_GET
 
         def do_POST(self) -> None:
+            # Checked before `_client_allowed`, which admits the whole
+            # subnet: this route is the one place a web page runs a
+            # command in the system, so its barrier must be stricter,
+            # not weaker. Loopback only.
+            if urlparse(self.path).path == "/console/service":
+                if not is_loopback_client(self.client_address[0]):
+                    self.send_error(403)
+                    return
+                length = int(self.headers.get("Content-Length", 0) or 0)
+                raw = self.rfile.read(min(length, 1024)) if length else b"{}"
+                try:
+                    action = json.loads(raw).get("action", "")
+                except (ValueError, AttributeError):
+                    self.send_error(400)
+                    return
+                # An allow-list lives in `service.control`; nothing from
+                # the request reaches a command line except through it.
+                ok, message = service.control(str(action))
+                events.log.add(
+                    "info" if ok else "error",
+                    f"service {action}" + ("" if ok else f" failed: {message}"),
+                )
+                self._respond(200, "application/json",
+                              json.dumps({"ok": ok, "message": message}), "no-store")
+                return
+
             if not self._client_allowed() or urlparse(self.path).path != "/e":
                 self.send_error(404)
                 return
