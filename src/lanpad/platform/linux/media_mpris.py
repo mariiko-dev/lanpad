@@ -274,6 +274,20 @@ class MprisMedia(MediaBackend):
                 asyncio.create_task(self._refresh())
 
         properties.on_properties_changed(on_properties_changed)
+
+        def on_seeked(position_us: int) -> None:
+            # MPRIS keeps Position out of PropertiesChanged — it changes
+            # continuously — and announces a jump with this signal instead.
+            # Without it a seek never reaches the phone and its progress bar
+            # keeps counting from the position before the jump.
+            if not self._stopping:
+                asyncio.create_task(self._refresh())
+
+        try:
+            self._player.on_seeked(on_seeked)
+        except AttributeError:
+            _log.debug("плеер %s не отдаёт сигнал Seeked", player_name)
+
         await self._refresh()
 
     async def _refresh(self) -> None:

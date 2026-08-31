@@ -195,3 +195,122 @@ def test_art_paths_are_evicted_once_the_cap_is_passed():
     assert len(mm._ART_PATHS) == mm.MAX_ART_ENTRIES
     assert "id0" not in mm._ART_PATHS
     assert f"id{mm.MAX_ART_ENTRIES + 4}" in mm._ART_PATHS
+
+
+# --- поддельный плеер на шине для проверки подписок --------------------------
+
+
+class _Var:
+    """Обёртка `dbus_next` над значением свойства: у неё есть `.value`."""
+
+    def __init__(self, value):
+        self.value = value
+
+
+class FakePlayer:
+    """Минимальный интерфейс `org.mpris.MediaPlayer2.Player`."""
+
+    def __init__(self):
+        self.seeked_cb = None
+        self.position_us = 5_000_000
+        self.status = "Playing"
+
+    def on_seeked(self, callback):
+        self.seeked_cb = callback
+
+    async def get_metadata(self):
+        return {
+            "xesam:title": _Var("Song"),
+            "mpris:length": _Var(300_000_000),
+            "mpris:trackid": _Var("/track/1"),
+        }
+
+    async def get_playback_status(self):
+        return self.status
+
+    async def get_position(self):
+        return self.position_us
+
+    async def get_can_seek(self):
+        return True
+
+
+class FakePlayerNoSeeked(FakePlayer):
+    """Плеер, объявивший урезанный интерфейс без сигнала `Seeked`."""
+
+    @property
+    def on_seeked(self):
+        raise AttributeError("on_seeked")
+
+
+class FakeProperties:
+    def __init__(self):
+        self.props_cb = None
+
+    def on_properties_changed(self, callback):
+        self.props_cb = callback
+
+
+class FakeProxy:
+    def __init__(self, player, properties):
+        self._player = player
+        self._properties = properties
+
+    def get_interface(self, name):
+        if name == mm.PLAYER_INTERFACE:
+            return self._player
+        return self._properties
+
+
+class FakeBus:
+    def __init__(self, proxy):
+        self._proxy = proxy
+
+    async def introspect(self, name, path):
+        return object()
+
+    def get_proxy_object(self, name, path, introspection):
+        return self._proxy
+
+
+def attached_backend(player):
+    backend = media_without_thread()
+    backend._stopping = False
+    backend._bus = FakeBus(FakeProxy(player, FakeProperties()))
+    return backend
+
+
+async def _drain_tasks():
+    pending = [t for t in asyncio.all_tasks() if t is not asyncio.current_task()]
+    if pending:
+        await asyncio.gather(*pending)
+
+
+def test_seeked_signal_refreshes_and_publishes():
+    """После перемотки плеер шлёт `Seeked`, и телефон должен узнать новую позицию."""
+    player = FakePlayer()
+    backend = attached_backend(player)
+    seen = []
+    backend.subscribe(seen.append)
+
+    async def scenario():
+        await backend._attach("org.mpris.MediaPlayer2.vlc")
+        seen.clear()
+        assert player.seeked_cb is not None
+        player.position_us = 120_000_000
+        player.seeked_cb(player.position_us)
+        await _drain_tasks()
+
+    asyncio.run(scenario())
+    assert seen and seen[-1].position == 120.0
+
+
+def test_attach_survives_a_player_without_the_seeked_signal():
+    player = FakePlayerNoSeeked()
+    backend = attached_backend(player)
+
+    async def scenario():
+        await backend._attach("org.mpris.MediaPlayer2.vlc")
+
+    asyncio.run(scenario())
+    assert backend._player is player
