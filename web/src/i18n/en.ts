@@ -4,7 +4,6 @@ export const en = {
   trackpadHint: "touch and drag",
   click: "Click",
   rightClick: "Right",
-  middleClick: "Middle",
   volume: "Volume",
   mute: "Mute",
   quieter: "Quieter",

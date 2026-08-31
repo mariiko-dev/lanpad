@@ -6,7 +6,6 @@ export const ru: Strings = {
   trackpadHint: "коснись и веди",
   click: "Клик",
   rightClick: "Правый",
-  middleClick: "Средний",
   volume: "Громкость",
   mute: "Без звука",
   quieter: "Тише",

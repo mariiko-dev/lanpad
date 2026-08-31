@@ -110,7 +110,7 @@ body {
 
 .clicks { display: flex; gap: 8px; background: none; border: 0; }
 .clicks button { flex: 1; border-radius: 15px; padding: 12px 0; color: var(--text); font-size: 13px; }
-.clicks button.wide { flex: 1.7; background: var(--accent); border-color: transparent; }
+.clicks button.wide { background: var(--accent); border-color: transparent; }
 
 .vol { border-radius: 19px; padding: 11px 14px; display: flex; align-items: center; gap: 11px; }
 .vol button { background: none; border: 0; font-size: 15px; }

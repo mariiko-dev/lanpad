@@ -14,8 +14,6 @@ export function ClickRow({ send, strings }: Props) {
                   onFire={() => send(["click", "l"])}>{strings.click}</HoldButton>
       <HoldButton label={strings.rightClick}
                   onFire={() => send(["click", "r"])}>{strings.rightClick}</HoldButton>
-      <HoldButton label={strings.middleClick}
-                  onFire={() => send(["click", "m"])}>···</HoldButton>
     </div>
   );
 }
